@@ -456,37 +456,37 @@ class MainActivity : Activity() {
         if (sourceUri == null) { status.text = "အရင်ဆုံး Video ရွေးပါ။"; return }
         status.text = "Video Audio Track ထုတ်ယူနေပါသည်..."
         Thread {
-            var extractor: MediaExtractor? = null
-            var muxer: MediaMuxer? = null
+            var extractorToRelease: MediaExtractor? = null
+            var muxerToRelease: MediaMuxer? = null
             val output = File(cacheDir, "hyper_audio_" + System.currentTimeMillis() + ".m4a")
             try {
-                extractor = MediaExtractor()
-                contentResolver.openFileDescriptor(sourceUri, "r")?.use { extractor.setDataSource(it.fileDescriptor) }
+                val ex = MediaExtractor(); extractorToRelease = ex
+                contentResolver.openFileDescriptor(sourceUri, "r")?.use { ex.setDataSource(it.fileDescriptor) }
                     ?: throw IllegalStateException("Video ဖိုင်ဖွင့်မရပါ။")
                 var track = -1
                 var format: MediaFormat? = null
-                for (i in 0 until extractor.trackCount) {
-                    val candidate = extractor.getTrackFormat(i)
+                for (i in 0 until ex.trackCount) {
+                    val candidate = ex.getTrackFormat(i)
                     if ((candidate.getString(MediaFormat.KEY_MIME) ?: "").startsWith("audio/")) { track = i; format = candidate; break }
                 }
                 if (track < 0 || format == null) throw IllegalStateException("Audio Track မတွေ့ပါ။")
-                extractor.selectTrack(track)
-                muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-                val outTrack = muxer.addTrack(format)
-                muxer.start()
+                ex.selectTrack(track)
+                val mx = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4); muxerToRelease = mx
+                val outTrack = mx.addTrack(format)
+                mx.start()
                 val capacity = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceAtLeast(262144) else 1048576
                 val buffer = ByteBuffer.allocateDirect(capacity)
                 val info = MediaCodec.BufferInfo()
                 while (true) {
                     buffer.clear()
-                    val size = extractor.readSampleData(buffer, 0)
+                    val size = ex.readSampleData(buffer, 0)
                     if (size < 0) break
-                    info.offset = 0; info.size = size; info.presentationTimeUs = extractor.sampleTime; info.flags = extractor.sampleFlags
-                    muxer.writeSampleData(outTrack, buffer, info)
-                    if (!extractor.advance()) break
+                    info.offset = 0; info.size = size; info.presentationTimeUs = ex.sampleTime; info.flags = ex.sampleFlags
+                    mx.writeSampleData(outTrack, buffer, info)
+                    if (!ex.advance()) break
                 }
-                muxer.stop(); muxer.release(); muxer = null
-                extractor.release(); extractor = null
+                mx.stop(); mx.release(); muxerToRelease = null
+                ex.release(); extractorToRelease = null
                 if (!output.exists() || output.length() == 0L) throw IllegalStateException("Audio data မရပါ။")
                 pendingExtractedAudio = output
                 runOnUiThread {
@@ -497,7 +497,7 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 output.delete()
                 runOnUiThread { status.text = "Audio ထုတ်ယူမရပါ: " + (e.localizedMessage ?: "Unsupported format") }
-            } finally { try { muxer?.stop() } catch (_: Exception) {}; try { muxer?.release() } catch (_: Exception) {}; try { extractor?.release() } catch (_: Exception) {} }
+            } finally { try { muxerToRelease?.stop() } catch (_: Exception) {}; try { muxerToRelease?.release() } catch (_: Exception) {}; try { extractorToRelease?.release() } catch (_: Exception) {} }
         }.start()
     }
     private fun chooseVideo() {
