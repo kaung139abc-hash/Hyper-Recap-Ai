@@ -224,6 +224,14 @@ class MainActivity : Activity() {
             text = "Generate Offline Extractive Recap"
             setOnClickListener { requireLicense { generateRecap() } }
         }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "Cloud AI Generative Movie Recap (Internet လိုအပ်)"
+            setOnClickListener { requireLicense { generateCloudAiRecap() } }
+        }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "English → Myanmar AI Translation (Internet လိုအပ်)"
+            setOnClickListener { requireLicense { translateTranscriptToMyanmar() } }
+        }, matchWidth())
         recapOutput = label("Recap ရလဒ် ဒီနေရာမှာ ပေါ်လာပါမည်", 14f)
         recapOutput.gravity = Gravity.START
         root.addView(recapOutput, matchWidth())
@@ -608,6 +616,54 @@ class MainActivity : Activity() {
         neuralPlayer?.release()
         neuralPlayer = null
         super.onDestroy()
+    }
+
+    private fun generateCloudAiRecap() {
+        val source = transcriptInput.text.toString().trim()
+        if (source.length < 80) {
+            status.text = "AI Recap အတွက် Transcript အနည်းဆုံး စာလုံး ၈၀ ခန့် လိုအပ်ပါသည်။ အရင်ဆုံး Video ကို Whisper ဖြင့် Transcribe လုပ်ပါ။"
+            return
+        }
+        status.text = "Cloud AI Generative Recap စတင်နေပါသည်။ Internet လိုအပ်ပြီး အသုံးပြုမှုအလိုက် Cloudflare AI quota ကန့်သတ်ချက်ရှိနိုင်သည်။"
+        Thread {
+            try {
+                val result = CloudAiClient.generateBurmeseRecap(this, source) { message ->
+                    runOnUiThread { status.text = message }
+                }
+                runOnUiThread {
+                    latestRecap = result
+                    latestSrt = SubtitleDraft.fromNarration(result)
+                    recapOutput.text = result
+                    status.text = "Cloud AI မြန်မာ Movie Recap ပြီးပါပြီ။ SRT timing သည် narration ခန့်မှန်းချိန်ဖြစ်သည်။"
+                }
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "Cloud AI Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Server/Quota error"}" }
+            }
+        }.start()
+    }
+
+    private fun translateTranscriptToMyanmar() {
+        val source = transcriptInput.text.toString().trim()
+        if (source.length < 30) {
+            status.text = "ဘာသာပြန်ရန် English Transcript စာသား ထည့်ပါ။"
+            return
+        }
+        status.text = "English → Myanmar AI Translation စတင်နေပါသည်။ Internet လိုအပ်သည်။"
+        Thread {
+            try {
+                val result = CloudAiClient.translateEnglishToMyanmar(this, source) { message ->
+                    runOnUiThread { status.text = message }
+                }
+                runOnUiThread {
+                    transcriptInput.setText(result)
+                    importedSrtCues = emptyList()
+                    importedSrtSource = ""
+                    status.text = "မြန်မာဘာသာပြန်ပြီးပါပြီ။ ဘာသာပြန်စာသားကို ပြန်စစ်ပြီး Recap ထုတ်နိုင်ပါပြီ။"
+                }
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "ဘာသာပြန်မအောင်မြင်ပါ: ${e.localizedMessage ?: "Server/Quota error"}" }
+            }
+        }.start()
     }
 
     private fun generateRecap() {
