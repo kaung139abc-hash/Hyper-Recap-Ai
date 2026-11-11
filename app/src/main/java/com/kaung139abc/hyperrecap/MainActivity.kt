@@ -5,6 +5,10 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.database.Cursor
 import android.media.MediaMetadataRetriever
+import android.media.MediaExtractor
+import android.media.MediaMuxer
+import android.media.MediaFormat
+import java.nio.ByteBuffer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
 import android.speech.tts.UtteranceProgressListener
@@ -40,6 +44,8 @@ class MainActivity : Activity() {
     private lateinit var voiceInfo: TextView
     private var pendingAudioUri: Uri? = null
     private var pendingAudioFile: File? = null
+    private var selectedVideoUri: Uri? = null
+    private var pendingExtractedAudio: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -102,6 +108,10 @@ class MainActivity : Activity() {
             setOnClickListener { chooseVideo() }
         }
         root.addView(choose, matchWidth())
+        root.addView(Button(this).apply {
+            text = "Video ထဲက အသံ Track ထုတ်ယူရန် (STT အတွက်)"
+            setOnClickListener { extractSelectedAudio() }
+        }, matchWidth())
 
         selectedInfo = label("Video မရွေးရသေးပါ", 16f)
         selectedInfo.setPadding(0, 24, 0, 16)
@@ -440,6 +450,56 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Extracts/remuxes the existing audio stream; this is preparation, not speech recognition. */
+    private fun extractSelectedAudio() {
+        val sourceUri = selectedVideoUri
+        if (sourceUri == null) { status.text = "အရင်ဆုံး Video ရွေးပါ။"; return }
+        status.text = "Video Audio Track ထုတ်ယူနေပါသည်..."
+        Thread {
+            var extractor: MediaExtractor? = null
+            var muxer: MediaMuxer? = null
+            val output = File(cacheDir, "hyper_audio_" + System.currentTimeMillis() + ".m4a")
+            try {
+                extractor = MediaExtractor()
+                contentResolver.openFileDescriptor(sourceUri, "r")?.use { extractor.setDataSource(it.fileDescriptor) }
+                    ?: throw IllegalStateException("Video ဖိုင်ဖွင့်မရပါ။")
+                var track = -1
+                var format: MediaFormat? = null
+                for (i in 0 until extractor.trackCount) {
+                    val candidate = extractor.getTrackFormat(i)
+                    if ((candidate.getString(MediaFormat.KEY_MIME) ?: "").startsWith("audio/")) { track = i; format = candidate; break }
+                }
+                if (track < 0 || format == null) throw IllegalStateException("Audio Track မတွေ့ပါ။")
+                extractor.selectTrack(track)
+                muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+                val outTrack = muxer.addTrack(format)
+                muxer.start()
+                val capacity = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceAtLeast(262144) else 1048576
+                val buffer = ByteBuffer.allocateDirect(capacity)
+                val info = MediaCodec.BufferInfo()
+                while (true) {
+                    buffer.clear()
+                    val size = extractor.readSampleData(buffer, 0)
+                    if (size < 0) break
+                    info.offset = 0; info.size = size; info.presentationTimeUs = extractor.sampleTime; info.flags = extractor.sampleFlags
+                    muxer.writeSampleData(outTrack, buffer, info)
+                    if (!extractor.advance()) break
+                }
+                muxer.stop(); muxer.release(); muxer = null
+                extractor.release(); extractor = null
+                if (!output.exists() || output.length() == 0L) throw IllegalStateException("Audio data မရပါ။")
+                pendingExtractedAudio = output
+                runOnUiThread {
+                    val save = Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "audio/mp4"; putExtra(Intent.EXTRA_TITLE, "HyperRecap-Audio.m4a") }
+                    startActivityForResult(save, REQUEST_SAVE_EXTRACTED_AUDIO)
+                    status.text = "Audio Track ထုတ်ယူပြီးပါပြီ။ သိမ်းမည့်နေရာရွေးပါ။"
+                }
+            } catch (e: Exception) {
+                output.delete()
+                runOnUiThread { status.text = "Audio ထုတ်ယူမရပါ: " + (e.localizedMessage ?: "Unsupported format") }
+            } finally { try { muxer?.stop() } catch (_: Exception) {}; try { muxer?.release() } catch (_: Exception) {}; try { extractor?.release() } catch (_: Exception) {} }
+        }.start()
+    }
     private fun chooseVideo() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -457,6 +517,19 @@ class MainActivity : Activity() {
             synthesizeRecapAudio(uri)
             return
         }
+        if (requestCode == REQUEST_SAVE_EXTRACTED_AUDIO) {
+            val source = pendingExtractedAudio ?: return
+            Thread {
+                try {
+                    contentResolver.openOutputStream(uri)?.use { output -> source.inputStream().use { it.copyTo(output) } }
+                        ?: throw IllegalStateException("Output stream unavailable")
+                    runOnUiThread { status.text = "Video Audio Track ကို M4A ဖိုင်အဖြစ် သိမ်းပြီးပါပြီ။" }
+                } catch (e: Exception) {
+                    runOnUiThread { status.text = "အသံဖိုင် သိမ်းမရပါ: " + (e.localizedMessage ?: "Error") }
+                } finally { source.delete(); pendingExtractedAudio = null }
+            }.start()
+            return
+        }
         if (requestCode == REQUEST_SAVE) {
             try {
                 contentResolver.openOutputStream(uri)?.use { it.write(latestRecap.toByteArray(Charsets.UTF_8)) }
@@ -467,6 +540,7 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode != REQUEST_VIDEO) return
+        selectedVideoUri = uri
         try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         catch (_: SecurityException) { }
         val name = queryName(uri) ?: "ရွေးထားသော Video"
@@ -498,5 +572,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003 }
+    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004 }
 }
