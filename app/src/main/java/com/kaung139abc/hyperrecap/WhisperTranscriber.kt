@@ -14,6 +14,7 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 import kotlin.math.floor
 
 /**
