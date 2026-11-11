@@ -834,35 +834,27 @@ class MainActivity : Activity() {
             status.text = "Transcript စာသား အနည်းဆုံး စာလုံး ၈၀ ခန့် လိုအပ်ပါသည်။"
             return
         }
-        // AUTO RECAP prefers licensed generative AI; keep an explicit offline fallback.
-        status.text = "AI က ဇာတ်လမ်းအစ၊ အဓိကဇာတ်ကောင်၊ အရေးကြီးဖြစ်ရပ်နဲ့ အဆုံးသတ်ကို အစဉ်လိုက် Recap ရေးနေပါသည်..."
-        recapOutput.text = "AI Recap ဖန်တီးနေပါသည်။ ခဏစောင့်ပါ..."
+        // Fully on-device recap: no cloud AI calls and no video-frame uploads.
+        status.text = "ဖုန်းထဲမှာပဲ Video အသံစာသားကို အစဉ်လိုက် Local Recap လုပ်နေပါသည်..."
+        recapOutput.text = "Local Recap ဖန်တီးနေပါသည်။ ခဏစောင့်ပါ..."
         Thread {
             try {
-                val generated = CloudAiClient.generateBurmeseRecap(this, source, latestVisualContext) { message ->
-                    runOnUiThread { status.text = message }
-                }
-                if (generated.isBlank()) throw IllegalStateException("AI Recap အလွတ်ပြန်လာပါသည်။")
+                val generated = OfflineRecap.summarize(source, 24)
+                if (generated.isBlank()) throw IllegalStateException("Local Recap အလွတ်ဖြစ်နေပါသည်။")
                 runOnUiThread {
                     latestRecap = generated
                     latestSrt = SubtitleDraft.fromNarration(generated)
                     recapOutput.text = generated
-                    status.text = "✓ AI မြန်မာ Recap ပြီးပါပြီ။ MP4 narration အတွက် သိမ်းမည့်နေရာ ရွေးပါ။"
+                    status.text = "✓ Local Recap ပြီးပါပြီ။ အင်တာနက်မလိုဘဲ မြန်မာအသံနဲ့ MP4 ထုတ်နိုင်ပါသည်။"
                     requestAutoNarratedMp4Destination()
                 }
             } catch (e: Exception) {
-                val offline = OfflineRecap.summarize(source)
                 runOnUiThread {
-                    latestRecap = offline
-                    latestSrt = SubtitleDraft.fromNarration(offline)
-                    recapOutput.text = offline
-                    status.text = "Cloud AI မရနိုင်သဖြင့် Offline အကျဉ်းချုပ်ကို အသုံးပြုထားသည်။ (" + (e.localizedMessage ?: "Internet/License/Quota စစ်ဆေးပါ") + ")"
-                    requestAutoNarratedMp4Destination()
+                    status.text = "Local Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Processing error"}"
                 }
             }
         }.start()
     }
-
 
     private fun requestAutoNarratedMp4Destination() {
         if (selectedVideoUri == null || latestRecap.isBlank()) return
@@ -1183,12 +1175,9 @@ class MainActivity : Activity() {
                 }
                 val cues = segments.map { SrtTranscript.Cue(it.startMs, it.endMs, it.text) }
                 val transcript = cues.joinToString("\n") { it.text }
-                latestVisualContext = try {
-                    analyzeVideoFrames(sourceUri) { message -> runOnUiThread { status.text = message } }
-                } catch (visionError: Exception) {
-                    runOnUiThread { status.text = "ရုပ်ပုံ AI မရနိုင်သဖြင့် အသံစာသားဖြင့် ဆက်လုပ်နေသည်: ${visionError.localizedMessage ?: "Vision error"}" }
-                    ""
-                }
+                // Local-first workflow: the movie is understood through its full audio transcript.
+                // Do not upload sampled frames or depend on cloud vision for AUTO RECAP.
+                latestVisualContext = ""
                 runOnUiThread {
                     importedSrtCues = cues
                     importedSrtSource = transcript
