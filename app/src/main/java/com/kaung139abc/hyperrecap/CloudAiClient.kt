@@ -5,28 +5,36 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * Optional online AI features routed through the user's own Cloudflare Worker.
- * Local Whisper and extractive recap continue to work without this service.
- */
 object CloudAiClient {
     private const val MAX_RECAP_CHARS = 20_000
     private const val MAX_TRANSLATE_CHARS = 5_000
 
-    fun generateBurmeseRecap(context: Context, source: String, progress: (String) -> Unit = {}): String {
+    fun generateBurmeseRecap(context: Context, source: String, visualContext: String = "", progress: (String) -> Unit = {}): String {
         val chunks = splitText(source, MAX_RECAP_CHARS)
         if (chunks.isEmpty()) throw IllegalArgumentException("Recap လုပ်ရန် Transcript မရှိပါ။")
         val drafts = chunks.mapIndexed { index, chunk ->
             progress("Cloud AI Recap ဖန်တီးနေသည် — ${index + 1}/${chunks.size}")
-            request(context, "/v1/ai/recap", chunk).getString("recap")
+            request(context, "/v1/ai/recap", chunk, visualContext).getString("recap")
         }
         if (drafts.size == 1) return drafts.first()
         val combined = drafts.joinToString("\n\n")
         if (combined.length <= MAX_RECAP_CHARS) {
             progress("Recap အပိုင်းများကို နောက်ဆုံးတစ်ကြိမ် ပေါင်းစည်းနေသည်...")
-            return request(context, "/v1/ai/recap", combined).getString("recap")
+            return request(context, "/v1/ai/recap", combined, visualContext).getString("recap")
         }
         return combined
+    }
+
+    fun analyzeVideoFrames(context: Context, frames: List<String>): String {
+        if (frames.isEmpty() || frames.size > 2) throw IllegalArgumentException("Frame ၁ မှ ၂ ပုံအထိသာ ပို့နိုင်ပါသည်။")
+        val license = LicenseManager.savedKey(context)
+        if (license.isBlank()) throw IllegalStateException("License Key ကို အရင် Activate လုပ်ပါ။")
+        val payload = JSONObject()
+            .put("licenseKey", license)
+            .put("deviceId", LicenseManager.deviceId(context))
+            .put("frames", org.json.JSONArray(frames))
+            .toString()
+        return postJson("/v1/ai/vision", payload).getString("description")
     }
 
     fun translateEnglishToMyanmar(context: Context, source: String, progress: (String) -> Unit = {}): String {
@@ -38,28 +46,32 @@ object CloudAiClient {
         }.joinToString("\n\n")
     }
 
-    private fun request(context: Context, path: String, text: String): JSONObject {
+    private fun request(context: Context, path: String, text: String, visualContext: String = ""): JSONObject {
         val license = LicenseManager.savedKey(context)
         if (license.isBlank()) throw IllegalStateException("License Key ကို အရင် Activate လုပ်ပါ။")
+        val payload = JSONObject()
+            .put("licenseKey", license)
+            .put("deviceId", LicenseManager.deviceId(context))
+            .put("text", text)
+            .put("visualContext", visualContext)
+            .toString()
+        return postJson(path, payload)
+    }
+
+    private fun postJson(path: String, payload: String): JSONObject {
         var connection: HttpURLConnection? = null
         try {
             connection = (URL(LicenseManager.SERVER_URL.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
-                connectTimeout = 20_000
-                readTimeout = 120_000
+                connectTimeout = 30_000
+                readTimeout = 180_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
             }
-            val payload = JSONObject()
-                .put("licenseKey", license)
-                .put("deviceId", LicenseManager.deviceId(context))
-                .put("text", text)
-                .toString()
             connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val raw = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
-            val json = JSONObject(raw)
+            val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
             if (status !in 200..299) {
                 val reason = json.optString("error", "HTTP $status")
                 throw IllegalStateException(when(reason) {
