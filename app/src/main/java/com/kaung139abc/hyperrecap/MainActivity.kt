@@ -428,12 +428,14 @@ class MainActivity : Activity() {
             status.text = "Transcript စာသား အနည်းဆုံး စာလုံး ၈၀ ခန့် ထည့်ပါ။"
             return
         }
-        latestRecap = OfflineRecap.summarize(source)
         val sourceCues = importedSrtCues
         if (sourceCues.isNotEmpty() && source == importedSrtSource) {
-            latestSrt = SrtTranscript.toSrt(SrtTranscript.summarize(sourceCues))
-            status.text = "Source-timed SRT Recap ပြီးပါပြီ။ ရွေးချယ်ထားသော subtitle များ၏ မူရင်း Video timestamp ကို ထိန်းသိမ်းထားသည်။"
+            val selectedCues = SrtTranscript.summarize(sourceCues)
+            latestRecap = selectedCues.joinToString("\\n\\n") { it.text }
+            latestSrt = SrtTranscript.toSrt(selectedCues)
+            status.text = "Source-timed SRT Recap ပြီးပါပြီ။ Recap စာသားနှင့် SRT တို့သည် မူရင်း Video timestamp များအတိုင်း ကိုက်ညီသည်။"
         } else {
+            latestRecap = OfflineRecap.summarize(source)
             latestSrt = SubtitleDraft.fromNarration(latestRecap)
             status.text = "Offline Recap ပြီးပါပြီ။ SRT သည် narration အတွက် ခန့်မှန်း timing ဖြစ်သည်။ မူရင်း Video နှင့် sync လုပ်ရန် SRT ဖိုင်ကို import လုပ်ပြီး စာသားမပြောင်းဘဲ Generate လုပ်ပါ။"
         }
