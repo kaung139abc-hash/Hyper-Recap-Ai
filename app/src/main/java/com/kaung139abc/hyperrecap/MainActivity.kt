@@ -5,6 +5,9 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.database.Cursor
 import android.media.MediaMetadataRetriever
+import android.graphics.Bitmap
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import android.media.MediaExtractor
 import android.media.MediaMuxer
 import android.media.MediaFormat
@@ -785,7 +788,7 @@ class MainActivity : Activity() {
         status.text = "Cloud AI Generative Recap စတင်နေပါသည်။ Internet လိုအပ်ပြီး အသုံးပြုမှုအလိုက် Cloudflare AI quota ကန့်သတ်ချက်ရှိနိုင်သည်။"
         Thread {
             try {
-                val result = CloudAiClient.generateBurmeseRecap(this, source) { message ->
+                val result = CloudAiClient.generateBurmeseRecap(this, source, latestVisualContext) { message ->
                     runOnUiThread { status.text = message }
                 }
                 runOnUiThread {
@@ -1203,6 +1206,69 @@ class MainActivity : Activity() {
                 transcriptionInProgress = false
             }
         }.start()
+    }
+
+    /**
+     * Samples up to 24 low-resolution frames across the full movie and sends
+     * them in pairs to the licensed Cloudflare Vision endpoint. Frames are
+     * encoded one batch at a time to keep peak memory low on 4GB devices.
+     */
+    private fun analyzeVideoFrames(source: Uri, onProgress: (String) -> Unit): String {
+        val retriever = MediaMetadataRetriever()
+        val notes = StringBuilder()
+        try {
+            retriever.setDataSource(this, source)
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()?.coerceAtLeast(1L) ?: return ""
+            val sampleCount = if (durationMs < 180_000L) 6 else 24
+            val intervalMs = (durationMs / sampleCount).coerceAtLeast(30_000L)
+            val batch = mutableListOf<Pair<Long, String>>()
+            var sampled = 0
+            var analyzed = 0
+            var timeMs = intervalMs / 2
+            while (timeMs < durationMs && sampled < sampleCount) {
+                onProgress("AI ရုပ်ပုံနားလည်မှု — ${sampled + 1}/$sampleCount frame ပြင်ဆင်နေသည်...")
+                val original = retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                if (original != null) {
+                    try {
+                        val scale = minOf(256f / original.width, 256f / original.height, 1f)
+                        val width = (original.width * scale).toInt().coerceAtLeast(1)
+                        val height = (original.height * scale).toInt().coerceAtLeast(1)
+                        val small = Bitmap.createScaledBitmap(original, width, height, true)
+                        try {
+                            val bytes = ByteArrayOutputStream()
+                            small.compress(Bitmap.CompressFormat.JPEG, 42, bytes)
+                            val encoded = Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+                            if (encoded.length <= 50_000) batch += timeMs to encoded
+                        } finally {
+                            if (small !== original) small.recycle()
+                        }
+                    } finally {
+                        original.recycle()
+                    }
+                }
+                sampled++
+                if (batch.size == 2) {
+                    onProgress("AI ရုပ်ပုံနားလည်မှု — ${analyzed + 1}/$sampleCount frame များကို စိစစ်နေသည်...")
+                    val description = CloudAiClient.analyzeVideoFrames(this, batch.map { it.second })
+                    batch.forEach { (at, _) -> notes.append("[${formatDuration(at)}] ") }
+                    notes.append(description).append("\n")
+                    analyzed += batch.size
+                    batch.clear()
+                }
+                timeMs += intervalMs
+            }
+            if (batch.isNotEmpty()) {
+                val description = CloudAiClient.analyzeVideoFrames(this, batch.map { it.second })
+                batch.forEach { (at, _) -> notes.append("[${formatDuration(at)}] ") }
+                notes.append(description).append("\n")
+                analyzed += batch.size
+            }
+            onProgress(if (analyzed > 0) "AI ရုပ်ပုံစိစစ်ပြီးပါပြီ — $analyzed frames" else "ဖတ်ရှုနိုင်သော Video frame မတွေ့ပါ။")
+            return notes.toString().take(12_000)
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
     }
 
     private fun extractSelectedAudio() {
