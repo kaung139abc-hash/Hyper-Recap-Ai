@@ -21,6 +21,9 @@ class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
     private lateinit var status: TextView
     private lateinit var linkInput: EditText
+    private lateinit var transcriptInput: EditText
+    private lateinit var recapOutput: TextView
+    private var latestRecap: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,7 +90,31 @@ class MainActivity : Activity() {
         selectedInfo.setPadding(0, 24, 0, 16)
         root.addView(selectedInfo)
 
-        status = label("Link သို့မဟုတ် ဖုန်းထဲက Video ကို ရွေးနိုင်သည်", 14f, 0xFFB8C0D9.toInt())
+        root.addView(label("OFFLINE TEXT RECAP", 18f, 0xFF8EA5FF.toInt()))
+        root.addView(label("Transcript / ဇာတ်လမ်းစာသားကို Paste လုပ်ပါ", 13f, 0xFFB8C0D9.toInt()))
+        transcriptInput = EditText(this).apply {
+            hint = "စာသားထည့်ရန်..."
+            setHintTextColor(0xFF9AA4BC.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            minLines = 5
+            gravity = Gravity.TOP
+            setPadding(14, 12, 14, 12)
+            setBackgroundColor(0xFF252B3A.toInt())
+        }
+        root.addView(transcriptInput, matchWidth())
+        root.addView(Button(this).apply {
+            text = "Generate Offline Recap"
+            setOnClickListener { generateRecap() }
+        }, matchWidth())
+        recapOutput = label("Recap ရလဒ် ဒီနေရာမှာ ပေါ်လာပါမည်", 14f)
+        recapOutput.gravity = Gravity.START
+        root.addView(recapOutput, matchWidth())
+        root.addView(Button(this).apply {
+            text = "Recap TXT သိမ်းရန်"
+            setOnClickListener { saveRecap() }
+        }, matchWidth())
+
+        status = label("အင်တာနက်မလို၊ API key မလို၊ daily quota မရှိသော local text recap", 13f, 0xFFB8C0D9.toInt())
         root.addView(status)
 
         val note = label(
@@ -105,6 +132,30 @@ class MainActivity : Activity() {
     private fun matchWidth() = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
     )
+
+    private fun generateRecap() {
+        val source = transcriptInput.text.toString().trim()
+        if (source.length < 80) {
+            status.text = "Transcript စာသား အနည်းဆုံး စာလုံး ၈၀ ခန့် ထည့်ပါ။"
+            return
+        }
+        latestRecap = OfflineRecap.summarize(source)
+        recapOutput.text = latestRecap
+        status.text = "Offline Recap ပြီးပါပြီ။ အင်တာနက်/API မလိုပါ။"
+    }
+
+    private fun saveRecap() {
+        if (latestRecap.isBlank()) {
+            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
+            return
+        }
+        val saveIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TITLE, "HyperRecap.txt")
+        }
+        startActivityForResult(saveIntent, REQUEST_SAVE)
+    }
 
     private fun downloadDirectVideo(raw: String) {
         val uri = try { Uri.parse(raw) } catch (_: Exception) { null }
@@ -145,8 +196,18 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated API retained for compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_VIDEO || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
+        if (requestCode == REQUEST_SAVE) {
+            try {
+                contentResolver.openOutputStream(uri)?.use { it.write(latestRecap.toByteArray(Charsets.UTF_8)) }
+                status.text = "TXT ဖိုင်အဖြစ် သိမ်းပြီးပါပြီ။"
+            } catch (e: Exception) {
+                status.text = "ဖိုင်သိမ်းမရပါ: " + (e.localizedMessage ?: "Error")
+            }
+            return
+        }
+        if (requestCode != REQUEST_VIDEO) return
         try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         catch (_: SecurityException) { }
         val name = queryName(uri) ?: "ရွေးထားသော Video"
@@ -155,7 +216,7 @@ class MainActivity : Activity() {
             retriever.setDataSource(this, uri)
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             selectedInfo.text = "$name\nကြာချိန်: ${formatDuration(duration)}"
-            status.text = "Video ကို ရွေးပြီးပါပြီ။ AI Recap Processing ကို နောက်ထပ် Build တွင် ထည့်သွင်းရဦးမည်။"
+            status.text = "Video ရွေးပြီးပါပြီ။ Transcript ကို ထည့်ပြီး Offline Recap လုပ်ပါ။"
         } catch (e: Exception) {
             selectedInfo.text = name
             status.text = "Video metadata ဖတ်မရပါ: ${e.localizedMessage ?: "Unknown error"}"
@@ -178,5 +239,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_VIDEO = 1001 }
+    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002 }
 }
