@@ -596,12 +596,12 @@ class MainActivity : Activity() {
                     val imported = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
                         ?: throw IllegalStateException("ဖိုင်ဖတ်မရပါ။")
                     val cues = SrtTranscript.parse(imported)
-                    val cleaned = if (cues.isNotEmpty()) cues.joinToString("\\n") { it.text } else imported
-                        .replace(Regex("(?m)^\\\\s*\\\\d+\\\\s*$"), "")
-                        .replace(Regex("(?m)^\\\\s*\\\\d{1,2}:\\\\d{2}:\\\\d{2}[,.]\\\\d{3}\\\\s*-->.*$"), "")
-                        .replace(Regex("(?m)^\\\\s*\\\\d{1,2}:\\\\d{2}[,.]\\\\d{3}\\\\s*-->.*$"), "")
+                    val cleaned = if (cues.isNotEmpty()) cues.joinToString("\n") { it.text } else imported
+                        .replace(Regex("(?m)^\\s*\\d+\\s*$"), "")
+                        .replace(Regex("(?m)^\\s*\\d{1,2}:\\d{2}:\\d{2}[,.]\\d{3}\\s*-->.*$"), "")
+                        .replace(Regex("(?m)^\\s*\\d{1,2}:\\d{2}[,.]\\d{3}\\s*-->.*$"), "")
                         .replace(Regex("<[^>]+>"), "")
-                        .lines().filter { it.isNotBlank() }.joinToString("\\n").trim()
+                        .lines().filter { it.isNotBlank() }.joinToString("\n").trim()
                     if (cleaned.length < 20) throw IllegalStateException("ဖိုင်ထဲတွင် အသုံးပြုနိုင်သော စာသား မလုံလောက်ပါ။")
                     runOnUiThread {
                         importedSrtCues = cues
