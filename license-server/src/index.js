@@ -12,12 +12,13 @@ export default {
   if(req.method!=="POST") return json({error:"POST required"},405);
   const b=await body(req);
   if(path==="/v1/activate" || path==="/v1/check"){
-   if(typeof b.licenseKey!=="string" || typeof b.deviceId!=="string" || b.deviceId.length>160) return json({error:"licenseKey and deviceId required"},400);
+   if(typeof b.licenseKey!=="string" || b.licenseKey.trim().length<8 || b.licenseKey.length>128 || typeof b.deviceId!=="string" || !b.deviceId.trim() || b.deviceId.length>160) return json({error:"valid licenseKey and deviceId required"},400);
    const h=await hash(b.licenseKey.trim().toUpperCase());
    const row=await env.DB.prepare("SELECT * FROM licenses WHERE key_hash=?").bind(h).first();
    if(!row || row.status!=="active") return json({valid:false,reason:"INVALID_OR_REVOKED"});
-   if(row.expires_at && Date.parse(row.expires_at)<Date.now()) return json({valid:false,reason:"EXPIRED"});
+   if(row.expires_at && (!Number.isFinite(Date.parse(row.expires_at)) || Date.parse(row.expires_at)<=Date.now())) return json({valid:false,reason:"EXPIRED"});
    let devices=JSON.parse(row.devices_json||"[]");
+   if(!Array.isArray(devices)) devices=[];
    if(!devices.includes(b.deviceId)){
     if(path==="/v1/check") return json({valid:false,reason:"DEVICE_NOT_ACTIVATED"});
     if(devices.length>=row.device_limit) return json({valid:false,reason:"DEVICE_LIMIT"});
@@ -29,7 +30,8 @@ export default {
   if(path.startsWith("/admin/")){
    if(!admin(req,env)) return json({error:"Unauthorized"},401);
    if(path==="/admin/create"){
-    const plan=["trial","monthly","lifetime"].includes(b.plan)?b.plan:"monthly";
+    if(!["trial","monthly","lifetime"].includes(b.plan)) return json({error:"Invalid plan"},400);
+    const plan=b.plan;
     const days=plan==="trial"?3:plan==="monthly"?30:0;
     const license=key(), expiry=days?new Date(Date.now()+days*86400000).toISOString():null;
     await env.DB.prepare("INSERT INTO licenses (key_hash,plan,status,expires_at,device_limit,devices_json,customer_note,created_at) VALUES (?,?,?,?,?,?,?,?)").bind(await hash(license),plan,"active",expiry,Math.max(1,Math.min(5,Number(b.deviceLimit)||1)),"[]",String(b.customerNote||"").slice(0,200),new Date().toISOString()).run();
@@ -40,10 +42,12 @@ export default {
     return json({licenses:results.map(x=>({...x,devices:JSON.parse(x.devices_json||"[]")}))});
    }
    if(path==="/admin/revoke"){
-    await env.DB.prepare("UPDATE licenses SET status='revoked' WHERE id=?").bind(Number(b.id)).run(); return json({ok:true});
+    const id=Number(b.id); if(!Number.isSafeInteger(id)||id<1) return json({error:"Invalid license id"},400);
+    const result=await env.DB.prepare("UPDATE licenses SET status='revoked' WHERE id=?").bind(id).run(); return json({ok:true,changes:result.meta?.changes||0});
    }
    if(path==="/admin/extend"){
-    const row=await env.DB.prepare("SELECT * FROM licenses WHERE id=?").bind(Number(b.id)).first();
+    const id=Number(b.id), days=Number(b.days); if(!Number.isSafeInteger(id)||id<1||!Number.isFinite(days)) return json({error:"Invalid id or days"},400);
+    const row=await env.DB.prepare("SELECT * FROM licenses WHERE id=?").bind(id).first();
     if(!row)return json({error:"Not found"},404);
     const base=row.expires_at&&Date.parse(row.expires_at)>Date.now()?Date.parse(row.expires_at):Date.now();
     const expiry=new Date(base+Math.max(1,Math.min(3650,Number(b.days)||30))*86400000).toISOString();
