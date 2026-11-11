@@ -37,6 +37,7 @@ class MainActivity : Activity() {
     private lateinit var transcriptInput: EditText
     private lateinit var recapOutput: TextView
     private var latestRecap: String = ""
+    private var latestSrt: String = ""
     private var tts: TextToSpeech? = null
     private var availableVoices: List<Voice> = emptyList()
     private lateinit var voicePicker: Spinner
@@ -145,6 +146,10 @@ class MainActivity : Activity() {
         root.addView(Button(this).apply {
             text = "Recap TXT သိမ်းရန်"
             setOnClickListener { saveRecap() }
+        }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "Recap Subtitle SRT ထုတ်ရန်"
+            setOnClickListener { saveSubtitles() }
         }, matchWidth())
 
         root.addView(space(18))
@@ -411,8 +416,22 @@ class MainActivity : Activity() {
             return
         }
         latestRecap = OfflineRecap.summarize(source)
+        latestSrt = SubtitleDraft.fromNarration(latestRecap)
         recapOutput.text = latestRecap
-        status.text = "Offline Recap ပြီးပါပြီ။ အင်တာနက်/API မလိုပါ။"
+        status.text = "Offline Recap ပြီးပါပြီ။ SRT Subtitle draft လည်း ပြင်ဆင်ပြီးပါပြီ။ Timing သည် narration အတွက် ခန့်မှန်းတန်ဖိုးဖြစ်သည်။"
+    }
+
+    private fun saveSubtitles() {
+        if (latestSrt.isBlank()) {
+            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
+            return
+        }
+        val saveIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/x-subrip"
+            putExtra(Intent.EXTRA_TITLE, "HyperRecap-Subtitles.srt")
+        }
+        startActivityForResult(saveIntent, REQUEST_SAVE_SRT)
     }
 
     private fun saveRecap() {
@@ -577,6 +596,16 @@ class MainActivity : Activity() {
             }.start()
             return
         }
+        if (requestCode == REQUEST_SAVE_SRT) {
+            try {
+                contentResolver.openOutputStream(uri)?.use { it.write(latestSrt.toByteArray(Charsets.UTF_8)) }
+                    ?: throw IllegalStateException("Output stream unavailable")
+                status.text = "SRT Subtitle သိမ်းပြီးပါပြီ။ Timing သည် ခန့်မှန်းထားသော narration timing ဖြစ်ပြီး မူရင်းရုပ်ရှင်နှင့် အလိုအလျောက် sync မဖြစ်သေးပါ။"
+            } catch (e: Exception) {
+                status.text = "SRT သိမ်းမရပါ: " + (e.localizedMessage ?: "Error")
+            }
+            return
+        }
         if (requestCode == REQUEST_SAVE) {
             try {
                 contentResolver.openOutputStream(uri)?.use { it.write(latestRecap.toByteArray(Charsets.UTF_8)) }
@@ -619,5 +648,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005 }
+    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; REQUEST_SAVE_SRT = 1006 }
 }
