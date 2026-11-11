@@ -47,7 +47,7 @@ export default {
      const result=await env.AI.run("@cf/meta/llama-3.1-8b-instruct",{
       messages:[
        {role:"system",content:"You are a careful movie recap writer. Write a coherent, chronological, engaging recap in Burmese. Use only facts stated in the transcript. Do not invent characters, events, motivations, or an ending. Preserve names. If the transcript is incomplete, say so. Return only the recap."},
-       {role:"user",content:"Create a detailed but concise movie recap from this transcript:\\n\\n"+text}
+       {role:"user",content:"Create a detailed but concise movie recap from this transcript:\n\n"+text}
       ],
       max_tokens:1200,
       temperature:0.35
