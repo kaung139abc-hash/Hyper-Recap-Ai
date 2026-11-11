@@ -122,7 +122,37 @@ class MainActivity : Activity() {
 
         root.addView(label("HYPER RECAP AI", 27f, 0xFF8EA5FF.toInt()))
         root.addView(label("Local Movie Recap Studio", 15f, 0xFFB8C0D9.toInt()))
-        root.addView(space(22))
+        root.addView(space(10))
+        val licenseKeyInput = EditText(this).apply {
+            hint = "License Key ထည့်ပါ"
+            setHintTextColor(0xFF9AA4BC.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setSingleLine(true)
+            setPadding(14, 12, 14, 12)
+            setBackgroundColor(0xFF252B3A.toInt())
+            setText(LicenseManager.savedKey(this@MainActivity))
+        }
+        root.addView(licenseKeyInput, matchWidth())
+        val licenseStatus = label("License မစစ်ဆေးရသေးပါ", 12f, 0xFFFFD28A.toInt())
+        root.addView(licenseStatus, matchWidth())
+        root.addView(Button(this).apply {
+            text = "Activate / Verify License"
+            setOnClickListener {
+                val key = licenseKeyInput.text.toString().trim()
+                if (key.isBlank()) {
+                    licenseStatus.text = "License Key ထည့်ပါ။"
+                } else {
+                    licenseStatus.text = "License စစ်ဆေးနေပါသည်..."
+                    Thread {
+                        val result = LicenseManager.activate(this@MainActivity, key)
+                        runOnUiThread {
+                            licenseStatus.text = if (result.valid) "✓ ${result.message} — ${result.plan}" else "✕ ${result.message}"
+                        }
+                    }.start()
+                }
+            }
+        }, matchWidth())
+        root.addView(space(16))
 
         linkInput = EditText(this).apply {
             hint = "Video link ကို ဒီမှာ Paste လုပ်ပါ"
@@ -293,6 +323,15 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        val savedLicense = LicenseManager.savedKey(this)
+        if (savedLicense.isNotBlank()) {
+            Thread {
+                val result = LicenseManager.check(this)
+                runOnUiThread {
+                    if (::status.isInitialized && !result.valid) status.text = "License အခြေအနေ: ${result.message}"
+                }
+            }.start()
+        }
         // Refresh voice data after returning from Android TTS settings.
         if (tts != null && ::voicePicker.isInitialized) {
             try {
