@@ -126,11 +126,6 @@ class MainActivity : Activity() {
             contentDescription = "Hyper Recap AI Logo"
             scaleType = ImageView.ScaleType.FIT_CENTER
         }, LinearLayout.LayoutParams(176, 176))
-        root.addView(android.widget.ImageView(this).apply {
-            setImageResource(R.drawable.hyper_recap_logo)
-            contentDescription = "Hyper Recap AI"
-            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-        }, LinearLayout.LayoutParams(180, 180))
         root.addView(label("HYPER RECAP AI", 27f, 0xFF8EA5FF.toInt()))
         root.addView(label("RECAP • TRANSLATE • DUB • ENJOY", 12f, 0xFFB8C0D9.toInt()))
         root.addView(space(10))
@@ -191,6 +186,19 @@ class MainActivity : Activity() {
             setOnClickListener { requireLicense { chooseVideo() } }
         }
         root.addView(choose, matchWidth())
+        root.addView(Button(this).apply {
+            text = "✨ AUTO RECAP — Video မှ ဇာတ်လမ်းအကျဉ်း အလိုအလျောက်ထုတ်ရန်"
+            setOnClickListener {
+                requireLicense {
+                    if (selectedVideoUri == null) {
+                        status.text = "အရင်ဆုံး ဖုန်းထဲက Video ရွေးပါ။"
+                    } else {
+                        transcribeSelectedVideo()
+                    }
+                }
+            }
+        }, matchWidth())
+        root.addView(label("Video ရွေးပြီး AUTO RECAP ကိုနှိပ်ရုံပါ။ အသံကို စာသားပြောင်းပြီး Recap ကို အလိုအလျောက်ဖန်တီးပေးမည်။", 12f, 0xFF20C9B5.toInt()))
         root.addView(Button(this).apply {
             text = "Video အသံကို WAV (PCM) ပြောင်းထုတ်ရန်"
             setOnClickListener { requireLicense { decodeSelectedAudio() } }
@@ -1028,7 +1036,7 @@ class MainActivity : Activity() {
                     importedSrtSource = transcript
                     transcriptInput.setText(transcript)
                     latestSrt = SrtTranscript.toSrt(cues)
-                    recapOutput.text = "Whisper Transcript ရရှိပါပြီ။ Generate Offline Recap ကို နှိပ်ပါ။"
+                    recapOutput.text = "Whisper Transcript ရရှိပါပြီ။ Recap ကို အလိုအလျောက် ဖန်တီးနေပါသည်..."
                     status.text = "Whisper Offline Transcription ပြီးပါပြီ။ ${cues.size} အပိုင်း ရရှိသည်။ မူရင်း Video အချိန်အပိုင်းအခြားများကို SRT တွင် ထိန်းသိမ်းထားသည်။"
                     if (transcript.length >= 80) generateRecap()
                 }
@@ -1209,7 +1217,7 @@ class MainActivity : Activity() {
             retriever.setDataSource(this, uri)
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             selectedInfo.text = "$name\nကြာချိန်: ${formatDuration(duration)}"
-            status.text = "Video ရွေးပြီးပါပြီ။ Transcript ကို ထည့်ပြီး Offline Recap လုပ်ပါ။"
+            status.text = "Video ရွေးပြီးပါပြီ။ AUTO RECAP ကိုနှိပ်ပါ။"
         } catch (e: Exception) {
             selectedInfo.text = name
             status.text = "Video metadata ဖတ်မရပါ: ${e.localizedMessage ?: "Unknown error"}"
