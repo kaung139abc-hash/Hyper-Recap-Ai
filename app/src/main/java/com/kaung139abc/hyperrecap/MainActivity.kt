@@ -38,6 +38,8 @@ class MainActivity : Activity() {
     private lateinit var recapOutput: TextView
     private var latestRecap: String = ""
     private var latestSrt: String = ""
+    private var importedSrtCues: List<SrtTranscript.Cue> = emptyList()
+    private var importedSrtSource: String = ""
     private var tts: TextToSpeech? = null
     private var availableVoices: List<Voice> = emptyList()
     private lateinit var voicePicker: Spinner
@@ -427,7 +429,14 @@ class MainActivity : Activity() {
             return
         }
         latestRecap = OfflineRecap.summarize(source)
-        latestSrt = SubtitleDraft.fromNarration(latestRecap)
+        val sourceCues = importedSrtCues
+        if (sourceCues.isNotEmpty() && source == importedSrtSource) {
+            latestSrt = SrtTranscript.toSrt(SrtTranscript.summarize(sourceCues))
+            status.text = "Source-timed SRT Recap ပြီးပါပြီ။ ရွေးချယ်ထားသော subtitle များ၏ မူရင်း Video timestamp ကို ထိန်းသိမ်းထားသည်။"
+        } else {
+            latestSrt = SubtitleDraft.fromNarration(latestRecap)
+            status.text = "Offline Recap ပြီးပါပြီ။ SRT သည် narration အတွက် ခန့်မှန်း timing ဖြစ်သည်။ မူရင်း Video နှင့် sync လုပ်ရန် SRT ဖိုင်ကို import လုပ်ပြီး စာသားမပြောင်းဘဲ Generate လုပ်ပါ။"
+        }
         recapOutput.text = latestRecap
         status.text = "Offline Recap ပြီးပါပြီ။ SRT Subtitle draft လည်း ပြင်ဆင်ပြီးပါပြီ။ Timing သည် narration အတွက် ခန့်မှန်းတန်ဖိုးဖြစ်သည်။"
     }
@@ -586,16 +595,21 @@ class MainActivity : Activity() {
                 try {
                     val imported = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
                         ?: throw IllegalStateException("ဖိုင်ဖတ်မရပါ။")
-                    val cleaned = imported
-                        .replace(Regex("(?m)^\\s*\\d+\\s*$"), "")
-                        .replace(Regex("(?m)^\\s*\\d{1,2}:\\d{2}:\\d{2}[,.]\\d{3}\\s*-->.*$"), "")
-                        .replace(Regex("(?m)^\\s*\\d{1,2}:\\d{2}[,.]\\d{3}\\s*-->.*$"), "")
+                    val cues = SrtTranscript.parse(imported)
+                    val cleaned = if (cues.isNotEmpty()) cues.joinToString("\\n") { it.text } else imported
+                        .replace(Regex("(?m)^\\\\s*\\\\d+\\\\s*$"), "")
+                        .replace(Regex("(?m)^\\\\s*\\\\d{1,2}:\\\\d{2}:\\\\d{2}[,.]\\\\d{3}\\\\s*-->.*$"), "")
+                        .replace(Regex("(?m)^\\\\s*\\\\d{1,2}:\\\\d{2}[,.]\\\\d{3}\\\\s*-->.*$"), "")
                         .replace(Regex("<[^>]+>"), "")
                         .lines().filter { it.isNotBlank() }.joinToString("\\n").trim()
                     if (cleaned.length < 20) throw IllegalStateException("ဖိုင်ထဲတွင် အသုံးပြုနိုင်သော စာသား မလုံလောက်ပါ။")
                     runOnUiThread {
+                        importedSrtCues = cues
+                        importedSrtSource = cleaned
                         transcriptInput.setText(cleaned)
-                        status.text = "Transcript ဖိုင်ကို ထည့်ပြီးပါပြီ။ စာသား ${cleaned.length} လုံး ရှိသည်။"
+                        status.text = if (cues.isNotEmpty())
+                            "SRT ဖိုင်ထည့်ပြီးပါပြီ။ ${cues.size} cues ၏ မူရင်း timestamp များကို ထိန်းသိမ်းထားသည်။"
+                        else "Transcript ဖိုင်ကို ထည့်ပြီးပါပြီ။ စာသား ${cleaned.length} လုံး ရှိသည်။"
                     }
                 } catch (e: Exception) {
                     runOnUiThread { status.text = "Transcript ဖိုင်ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}" }
