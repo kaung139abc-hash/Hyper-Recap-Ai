@@ -2,6 +2,11 @@ name: Deploy Hyper Recap License Server
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "license-server/**"
+      - ".github/workflows/deploy-license-server.yml"
 
 permissions:
   contents: read
