@@ -9,6 +9,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
 import android.speech.tts.UtteranceProgressListener
 import android.os.Bundle
+import android.provider.Settings
 import android.net.Uri
 import android.os.Environment
 import android.view.Gravity
@@ -151,6 +152,16 @@ class MainActivity : Activity() {
             text = "အသံစမ်းနားထောင်ရန်"
             setOnClickListener { previewVoice() }
         }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "ဖုန်း၏ TTS အသံအသစ်များ ထည့်သွင်းရန်"
+            setOnClickListener {
+                try {
+                    startActivity(Intent(Settings.ACTION_TTS_SETTINGS))
+                } catch (_: Exception) {
+                    status.text = "Settings > Accessibility > Text-to-speech output ကို ဖွင့်ပါ။"
+                }
+            }
+        }, matchWidth())
 
         root.addView(Button(this).apply {
             text = "Recap အသံဖိုင် WAV သိမ်းရန်"
@@ -227,7 +238,7 @@ class MainActivity : Activity() {
                         val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
                         excluded.none { identity.contains(it) }
                     }
-                    .sortedWith(compareBy<Voice>({ it.locale.displayName }, { -it.quality }, { it.name }))
+                    .sortedWith(compareBy<Voice>({ if (it.locale.language == "my") 0 else 1 }, { -it.quality }, { it.locale.displayName }, { it.name }))
                 val labels = availableVoices.map { voice ->
                     val mode = if (voice.isNetworkConnectionRequired) "Online" else "Offline"
                     "${voice.locale.displayName} — ${voice.name} — $mode — Quality ${voice.quality}"
@@ -249,7 +260,7 @@ class MainActivity : Activity() {
                             }
                         }
                     }
-                    voiceInfo.text = "အသံ ${labels.size} မျိုး တွေ့ရှိသည်။ Engine ပေါ်မူတည်ပြီး အရည်အသွေးကွာနိုင်သည်။"
+                    voiceInfo.text = "အသံ ${labels.size} မျိုး တွေ့ရှိသည်။ မြန်မာအသံရှိပါက စာရင်းအပေါ်ဆုံးတွင် ဦးစားပေးထားသည်။ Quality မြင့်သောအသံများကိုလည်း ဦးစားပေးထားသည်။"
                 }
             } catch (e: Exception) {
                 voiceInfo.text = "အသံစာရင်း ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}"
