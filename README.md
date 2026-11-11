@@ -64,13 +64,17 @@ Whisper transcription can now create these source-window-timed cues. This still 
 
 ## Commercial licensing foundation (v0.5.0)
 
-The repository now includes:
-- `license-server/`: Cloudflare Worker + D1 API for hashed license keys, 3-day trial, 30-day monthly, lifetime, device binding, revoke, extend, and stats.
-- `license-server/admin.html`: browser-based owner dashboard.
-- Android license activation/verification UI and a device identifier client (`LicenseManager.kt`).
-- R8 minification/resource shrinking configuration and CI validation of an unsigned release build.
+The repository includes a Cloudflare Worker + D1 license service with hashed keys, 3-day trial, 30-day monthly, lifetime, device binding, revoke, extend, stats, and a browser owner dashboard at `/admin`. Android paid actions call the license service before running. The owner dashboard requires the private `ADMIN_SECRET`.
 
-### Not ready for paid public sale yet
-The Worker must be deployed and its D1 database created; replace `LicenseManager.SERVER_URL` with the real Worker URL. The Android UI currently lets a buyer activate/check a key, but it does **not yet enforce a license lock on every paid feature**. The admin dashboard is a static page and must be hosted privately; never expose the admin secret publicly. Payments are not automated. The release APK is not signed with the owner's private release keystore. Do not sell this build as a fully protected commercial product until those steps and on-device tests are complete.
+### Release signing
+The Android Actions workflow supports a private release keystore. When all four secrets are configured — `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` — it builds and publishes a signed `app-release.apk`. Without them, the release build is only unsigned validation. Follow [RELEASE_SIGNING.md](RELEASE_SIGNING.md). The private keystore must be backed up permanently; future app updates need the same key.
 
-The current neural Myanmar MMS voice has a CC BY-NC 4.0 license and must be replaced or separately licensed for commercial distribution.
+### Remaining blockers before commercial sale
+- **Generative movie recap is not implemented.** Current recap is local extractive sentence ranking; it does not understand the plot like a generative LLM.
+- **Offline English-to-Myanmar translation is not implemented.** Whisper can transcribe supported speech, but it does not translate it.
+- **Commercial Burmese neural TTS is not included.** The current MMS-TTS Myanmar model is CC BY-NC 4.0 (non-commercial); its UI action is disabled to avoid enabling commercial use of a restricted model. The app can use voices installed in the Android system TTS engine.
+- **Social-media page URLs are not downloaded directly.** The app opens the official app/browser. Users must supply an authorized local video file; direct downloadable video-file URLs are supported.
+- The signed release must be installed and tested on the target Redmi 13R (4 GB RAM) with long videos, codecs, battery/thermal behavior, and license activation.
+- Rotate the Cloudflare API token and Admin Secret that were exposed in the previous setup conversation before issuing customer licenses. Never paste secrets into chat or commit them.
+
+Do not advertise the app as a complete generative/translation/fully offline commercial product until those features are implemented with compatible models and commercial licenses, and the signed APK has passed real-device testing.
