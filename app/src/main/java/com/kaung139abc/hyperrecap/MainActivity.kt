@@ -802,21 +802,34 @@ class MainActivity : Activity() {
     private fun generateRecap() {
         val source = transcriptInput.text.toString().trim()
         if (source.length < 80) {
-            status.text = "Transcript စာသား အနည်းဆုံး စာလုံး ၈၀ ခန့် ထည့်ပါ။"
+            status.text = "Transcript စာသား အနည်းဆုံး စာလုံး ၈၀ ခန့် လိုအပ်ပါသည်။"
             return
         }
-        val sourceCues = importedSrtCues
-        if (sourceCues.isNotEmpty() && source == importedSrtSource) {
-            val selectedCues = SrtTranscript.summarize(sourceCues)
-            latestRecap = selectedCues.joinToString("\n\n") { it.text }
-            latestSrt = SrtTranscript.toSrt(selectedCues)
-            status.text = "Source-timed SRT Recap ပြီးပါပြီ။ Recap စာသားနှင့် SRT တို့သည် မူရင်း Video timestamp များအတိုင်း ကိုက်ညီသည်။"
-        } else {
-            latestRecap = OfflineRecap.summarize(source)
-            latestSrt = SubtitleDraft.fromNarration(latestRecap)
-            status.text = "Offline Recap ပြီးပါပြီ။ SRT သည် narration အတွက် ခန့်မှန်း timing ဖြစ်သည်။ မူရင်း Video နှင့် sync လုပ်ရန် SRT ဖိုင်ကို import လုပ်ပြီး စာသားမပြောင်းဘဲ Generate လုပ်ပါ။"
-        }
-        recapOutput.text = latestRecap
+        // AUTO RECAP prefers licensed generative AI; keep an explicit offline fallback.
+        status.text = "AI က ဇာတ်လမ်းအစ၊ အဓိကဇာတ်ကောင်၊ အရေးကြီးဖြစ်ရပ်နဲ့ အဆုံးသတ်ကို အစဉ်လိုက် Recap ရေးနေပါသည်..."
+        recapOutput.text = "AI Recap ဖန်တီးနေပါသည်။ ခဏစောင့်ပါ..."
+        Thread {
+            try {
+                val generated = CloudAiClient.generateBurmeseRecap(this, source) { message ->
+                    runOnUiThread { status.text = message }
+                }
+                if (generated.isBlank()) throw IllegalStateException("AI Recap အလွတ်ပြန်လာပါသည်။")
+                runOnUiThread {
+                    latestRecap = generated
+                    latestSrt = SubtitleDraft.fromNarration(generated)
+                    recapOutput.text = generated
+                    status.text = "✓ AI မြန်မာ Recap ပြီးပါပြီ။ ဇာတ်ကြောင်းကို narration အဖြစ် ပြင်ဆင်ပြီးပါပြီ။"
+                }
+            } catch (e: Exception) {
+                val offline = OfflineRecap.summarize(source)
+                runOnUiThread {
+                    latestRecap = offline
+                    latestSrt = SubtitleDraft.fromNarration(offline)
+                    recapOutput.text = offline
+                    status.text = "Cloud AI မရနိုင်သဖြင့် Offline အကျဉ်းချုပ်ကို အသုံးပြုထားသည်။ (" + (e.localizedMessage ?: "Internet/License/Quota စစ်ဆေးပါ") + ")"
+                }
+            }
+        }.start()
     }
 
 
