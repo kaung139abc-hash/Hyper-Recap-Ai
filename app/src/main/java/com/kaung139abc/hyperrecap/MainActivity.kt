@@ -51,6 +51,7 @@ class MainActivity : Activity() {
     private lateinit var transcriptInput: EditText
     private lateinit var recapOutput: TextView
     private var latestRecap: String = ""
+    @Volatile private var latestVisualContext: String = ""
     private var latestSrt: String = ""
     private var importedSrtCues: List<SrtTranscript.Cue> = emptyList()
     private var importedSrtSource: String = ""
