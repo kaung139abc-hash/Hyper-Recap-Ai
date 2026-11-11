@@ -199,50 +199,11 @@ class MainActivity : Activity() {
             }
         }, matchWidth())
         root.addView(label("Video ရွေးပြီး AUTO RECAP ကိုနှိပ်ရုံပါ။ အသံကို စာသားပြောင်းပြီး Recap ကို အလိုအလျောက်ဖန်တီးပေးမည်။", 12f, 0xFF20C9B5.toInt()))
-        root.addView(Button(this).apply {
-            text = "Video အသံကို WAV (PCM) ပြောင်းထုတ်ရန်"
-            setOnClickListener { requireLicense { decodeSelectedAudio() } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "Whisper Offline Speech-to-Text (မြန်မာအပါအဝင်)"
-            setOnClickListener { requireLicense { transcribeSelectedVideo() } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "မူရင်း Audio Track ကို M4A ထုတ်ရန်"
-            setOnClickListener { requireLicense { extractSelectedAudio() } }
-        }, matchWidth())
 
         selectedInfo = label("Video မရွေးရသေးပါ", 16f)
         selectedInfo.setPadding(0, 24, 0, 16)
         root.addView(selectedInfo)
 
-        root.addView(label("OFFLINE TEXT RECAP", 18f, 0xFF8EA5FF.toInt()))
-        root.addView(label("Transcript / ဇာတ်လမ်းစာသားကို Paste လုပ်ပါ", 13f, 0xFFB8C0D9.toInt()))
-        transcriptInput = EditText(this).apply {
-            hint = "စာသားထည့်ရန်..."
-            setHintTextColor(0xFF9AA4BC.toInt())
-            setTextColor(0xFFFFFFFF.toInt())
-            minLines = 5
-            gravity = Gravity.TOP
-            setPadding(14, 12, 14, 12)
-            setBackgroundColor(0xFF252B3A.toInt())
-        }
-        root.addView(transcriptInput, matchWidth())
-        root.addView(Button(this).apply {
-            text = "TXT / SRT Transcript ဖိုင်ထည့်ရန်"
-            setOnClickListener { requireLicense {
-                val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/plain", "application/x-subrip", "text/srt"))
-                }
-                startActivityForResult(pick, REQUEST_TRANSCRIPT)
-            } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "Generate Offline Extractive Recap"
-            setOnClickListener { requireLicense { generateRecap() } }
-        }, matchWidth())
         root.addView(Button(this).apply {
             text = "Cloud AI Generative Movie Recap (Internet လိုအပ်)"
             setOnClickListener { requireLicense { generateCloudAiRecap() } }
@@ -251,7 +212,8 @@ class MainActivity : Activity() {
             text = "English → Myanmar AI Translation (Internet လိုအပ်)"
             setOnClickListener { requireLicense { translateTranscriptToMyanmar() } }
         }, matchWidth())
-        recapOutput = label("Recap ရလဒ် ဒီနေရာမှာ ပေါ်လာပါမည်", 14f)
+        root.addView(label("YOUR RECAP", 18f, 0xFF8EA5FF.toInt()))
+        recapOutput = label("Video ကိုရွေးပြီး AUTO RECAP ကိုနှိပ်ပါ။ ရလဒ် ဒီနေရာမှာ ပေါ်လာပါမည်။", 14f)
         recapOutput.gravity = Gravity.START
         root.addView(recapOutput, matchWidth())
         root.addView(Button(this).apply {
