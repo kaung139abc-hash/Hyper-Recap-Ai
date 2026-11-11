@@ -21,3 +21,9 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
+dependencies {
+    implementation(files("libs/sherpa-onnx.aar"))
+    implementation("org.apache.commons:commons-compress:1.27.1")
+    implementation("commons-io:commons-io:2.17.0")
+}
