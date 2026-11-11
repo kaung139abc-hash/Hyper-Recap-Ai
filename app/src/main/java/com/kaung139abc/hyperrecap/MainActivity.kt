@@ -838,7 +838,7 @@ class MainActivity : Activity() {
         recapOutput.text = "AI Recap ဖန်တီးနေပါသည်။ ခဏစောင့်ပါ..."
         Thread {
             try {
-                val generated = CloudAiClient.generateBurmeseRecap(this, source) { message ->
+                val generated = CloudAiClient.generateBurmeseRecap(this, source, latestVisualContext) { message ->
                     runOnUiThread { status.text = message }
                 }
                 if (generated.isBlank()) throw IllegalStateException("AI Recap အလွတ်ပြန်လာပါသည်။")
@@ -1182,6 +1182,12 @@ class MainActivity : Activity() {
                 }
                 val cues = segments.map { SrtTranscript.Cue(it.startMs, it.endMs, it.text) }
                 val transcript = cues.joinToString("\n") { it.text }
+                latestVisualContext = try {
+                    analyzeVideoFrames(sourceUri) { message -> runOnUiThread { status.text = message } }
+                } catch (visionError: Exception) {
+                    runOnUiThread { status.text = "ရုပ်ပုံ AI မရနိုင်သဖြင့် အသံစာသားဖြင့် ဆက်လုပ်နေသည်: ${visionError.localizedMessage ?: "Vision error"}" }
+                    ""
+                }
                 runOnUiThread {
                     importedSrtCues = cues
                     importedSrtSource = transcript
