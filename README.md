@@ -36,3 +36,9 @@ YouTube, Facebook, TikTok and Instagram page URLs are not equivalent to direct v
 5. Install the APK on Android. If Android asks, allow installation from that file manager/browser.
 
 The workflow can also be started manually with **Actions → Android APK → Run workflow**.
+
+## Source-timed SRT recap
+
+When an SRT subtitle file is imported, the app now parses its cue timestamps and ranks subtitle cues locally. The recap text and exported SRT are built from the same selected cues, preserving their original movie timestamps. This provides source-aligned recap subtitles when a matching SRT transcript is available. TXT transcript imports and manually pasted text still use estimated narration timing for the generated SRT.
+
+This does not perform automatic speech recognition, translation, or render subtitles into an MP4. Those features still require dedicated offline speech/translation models and a media rendering pipeline.
