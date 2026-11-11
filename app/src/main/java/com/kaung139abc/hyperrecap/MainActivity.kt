@@ -174,7 +174,7 @@ class MainActivity : Activity() {
             text = "ဖုန်း၏ TTS အသံအသစ်များ ထည့်သွင်းရန်"
             setOnClickListener {
                 try {
-                    startActivity(Intent(Settings.ACTION_TTS_SETTINGS))
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 } catch (_: Exception) {
                     status.text = "Settings > Accessibility > Text-to-speech output ကို ဖွင့်ပါ။"
                 }
@@ -198,9 +198,9 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             setBackgroundColor(0xFF10131B.toInt())
-            addView(root, ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT
+            addView(root, android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
         setContentView(scroll)
