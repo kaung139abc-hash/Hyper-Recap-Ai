@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     private var pendingAudioFile: File? = null
     private var selectedVideoUri: Uri? = null
     private var pendingExtractedAudio: File? = null
+    private var pendingDecodedWav: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -110,7 +111,11 @@ class MainActivity : Activity() {
         }
         root.addView(choose, matchWidth())
         root.addView(Button(this).apply {
-            text = "Video ထဲက အသံ Track ထုတ်ယူရန် (STT အတွက်)"
+            text = "Video အသံကို WAV (PCM) ပြောင်းထုတ်ရန်"
+            setOnClickListener { decodeSelectedAudio() }
+        }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "မူရင်း Audio Track ကို M4A ထုတ်ရန်"
             setOnClickListener { extractSelectedAudio() }
         }, matchWidth())
 
@@ -452,6 +457,34 @@ class MainActivity : Activity() {
     }
 
     /** Extracts/remuxes the existing audio stream; this is preparation, not speech recognition. */
+    /** Decode video audio incrementally to PCM WAV for a future local ASR engine. */
+    private fun decodeSelectedAudio() {
+        val sourceUri = selectedVideoUri
+        if (sourceUri == null) { status.text = "အရင်ဆုံး Video ရွေးပါ။"; return }
+        status.text = "Video အသံကို PCM WAV ပြောင်းနေပါသည်။ ဖိုင်ရှည်လျှင် အချိန်ကြာနိုင်သည်..."
+        Thread {
+            val output = File(cacheDir, "hyper_pcm_" + System.currentTimeMillis() + ".wav")
+            try {
+                AudioDecoder.decodeToWav(this, sourceUri, output) { message ->
+                    runOnUiThread { status.text = message }
+                }
+                pendingDecodedWav = output
+                runOnUiThread {
+                    val save = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "audio/wav"
+                        putExtra(Intent.EXTRA_TITLE, "HyperRecap-Audio-PCM.wav")
+                    }
+                    startActivityForResult(save, REQUEST_SAVE_DECODED_WAV)
+                    status.text = "PCM WAV ပြောင်းပြီးပါပြီ။ သိမ်းမည့်နေရာရွေးပါ။"
+                }
+            } catch (e: Exception) {
+                output.delete()
+                runOnUiThread { status.text = "PCM WAV ပြောင်းမရပါ: " + (e.localizedMessage ?: "Unsupported audio") }
+            }
+        }.start()
+    }
+
     private fun extractSelectedAudio() {
         val sourceUri = selectedVideoUri
         if (sourceUri == null) { status.text = "အရင်ဆုံး Video ရွေးပါ။"; return }
@@ -518,6 +551,19 @@ class MainActivity : Activity() {
             synthesizeRecapAudio(uri)
             return
         }
+        if (requestCode == REQUEST_SAVE_DECODED_WAV) {
+            val source = pendingDecodedWav ?: return
+            Thread {
+                try {
+                    contentResolver.openOutputStream(uri)?.use { output -> source.inputStream().use { it.copyTo(output) } }
+                        ?: throw IllegalStateException("Output stream unavailable")
+                    runOnUiThread { status.text = "PCM WAV ဖိုင် သိမ်းပြီးပါပြီ။ ဒီဖိုင်ကို နောက်တစ်ဆင့် Local Speech-to-Text Engine မှာ အသုံးပြုနိုင်ပါမည်။" }
+                } catch (e: Exception) {
+                    runOnUiThread { status.text = "WAV ဖိုင် သိမ်းမရပါ: " + (e.localizedMessage ?: "Error") }
+                } finally { source.delete(); pendingDecodedWav = null }
+            }.start()
+            return
+        }
         if (requestCode == REQUEST_SAVE_EXTRACTED_AUDIO) {
             val source = pendingExtractedAudio ?: return
             Thread {
@@ -573,5 +619,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004 }
+    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005 }
 }
