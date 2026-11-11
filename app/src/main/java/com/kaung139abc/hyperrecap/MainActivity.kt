@@ -167,7 +167,7 @@ class MainActivity : Activity() {
 
         val linkButton = Button(this).apply {
             text = "Direct Video Link Download"
-            setOnClickListener { downloadDirectVideo(linkInput.text.toString().trim()) }
+            setOnClickListener { requireLicense { downloadDirectVideo(linkInput.text.toString().trim()) } }
         }
         root.addView(linkButton, matchWidth())
         root.addView(Button(this).apply {
@@ -177,20 +177,20 @@ class MainActivity : Activity() {
 
         val choose = Button(this).apply {
             text = "ဖုန်းထဲက Video ရွေးရန်"
-            setOnClickListener { chooseVideo() }
+            setOnClickListener { requireLicense { chooseVideo() } }
         }
         root.addView(choose, matchWidth())
         root.addView(Button(this).apply {
             text = "Video အသံကို WAV (PCM) ပြောင်းထုတ်ရန်"
-            setOnClickListener { decodeSelectedAudio() }
+            setOnClickListener { requireLicense { decodeSelectedAudio() } }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "Whisper Offline Speech-to-Text (မြန်မာအပါအဝင်)"
-            setOnClickListener { transcribeSelectedVideo() }
+            setOnClickListener { requireLicense { transcribeSelectedVideo() } }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "မူရင်း Audio Track ကို M4A ထုတ်ရန်"
-            setOnClickListener { extractSelectedAudio() }
+            setOnClickListener { requireLicense { extractSelectedAudio() } }
         }, matchWidth())
 
         selectedInfo = label("Video မရွေးရသေးပါ", 16f)
@@ -222,22 +222,22 @@ class MainActivity : Activity() {
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "Generate Offline Recap"
-            setOnClickListener { generateRecap() }
+            setOnClickListener { requireLicense { generateRecap() } }
         }, matchWidth())
         recapOutput = label("Recap ရလဒ် ဒီနေရာမှာ ပေါ်လာပါမည်", 14f)
         recapOutput.gravity = Gravity.START
         root.addView(recapOutput, matchWidth())
         root.addView(Button(this).apply {
             text = "Recap TXT သိမ်းရန်"
-            setOnClickListener { saveRecap() }
+            setOnClickListener { requireLicense { saveRecap() } }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "Recap Subtitle SRT ထုတ်ရန်"
-            setOnClickListener { saveSubtitles() }
+            setOnClickListener { requireLicense { saveSubtitles() } }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "မြန်မာစာတန်းထိုး MP4 ထုတ်ရန် (Video ထဲ တစ်ခါတည်းထည့်)"
-            setOnClickListener { requestSubtitleMp4Destination() }
+            setOnClickListener { requireLicense { requestSubtitleMp4Destination() } }
         }, matchWidth())
 
         root.addView(space(18))
@@ -255,11 +255,11 @@ class MainActivity : Activity() {
         root.addView(speechPitch, matchWidth())
         root.addView(Button(this).apply {
             text = "ရွေးထားသောအသံဖြင့် Recap ဖတ်ရန်"
-            setOnClickListener { speakRecap() }
+            setOnClickListener { requireLicense { speakRecap() } }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "အသံစမ်းနားထောင်ရန်"
-            setOnClickListener { previewVoice() }
+            setOnClickListener { requireLicense { previewVoice() } }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "အသံရပ်ရန်"
@@ -281,15 +281,15 @@ class MainActivity : Activity() {
 
         root.addView(Button(this).apply {
             text = "Recap အသံဖိုင် WAV သိမ်းရန်"
-            setOnClickListener { saveRecapAudio() }
+            setOnClickListener { requireLicense { saveRecapAudio() } }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "မြန်မာ Neural AI Voice — ဖန်တီးပြီး နားထောင်ရန်"
-            setOnClickListener { generateMyanmarNeuralVoice() }
+            setOnClickListener { requireLicense { generateMyanmarNeuralVoice() } }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "မြန်မာ Neural Voice WAV သိမ်းရန်"
-            setOnClickListener { saveMyanmarNeuralWav() }
+            setOnClickListener { requireLicense { saveMyanmarNeuralWav() } }
         }, matchWidth())
         root.addView(label("MMS မြန်မာအသံ Model — ပထမဆုံးအကြိမ် Download လုပ်ပြီးနောက် Offline အသုံးပြုနိုင်သည်။ Model License: CC BY-NC 4.0 (စီးပွားဖြစ်အသုံးပြုခွင့်မပါ)။", 11f, 0xFFFFD28A.toInt()))
 
@@ -320,6 +320,21 @@ class MainActivity : Activity() {
         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
     )
 
+
+    private fun requireLicense(action: () -> Unit) {
+        status.text = "License အတည်ပြုနေပါသည်..."
+        Thread {
+            val result = LicenseManager.check(this)
+            runOnUiThread {
+                if (result.valid) {
+                    status.text = "License OK — ${result.plan}"
+                    action()
+                } else {
+                    status.text = "အသုံးပြုခွင့်မရှိပါ: ${result.message} License Key ကို Activate လုပ်ပါ။"
+                }
+            }
+        }.start()
+    }
 
     override fun onResume() {
         super.onResume()
