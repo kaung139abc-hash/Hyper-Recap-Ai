@@ -13,6 +13,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import java.util.Locale
 
@@ -122,7 +123,15 @@ class MainActivity : Activity() {
         )
         note.setPadding(0, 28, 0, 0)
         root.addView(note)
-        setContentView(root)
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            setBackgroundColor(0xFF10131B.toInt())
+            addView(root, ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        setContentView(scroll)
     }
 
     private fun space(height: Int) = View(this).apply {
