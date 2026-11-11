@@ -2,6 +2,10 @@ name = "hyper-recap-license"
 main = "src/index.js"
 compatibility_date = "2026-11-11"
 
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "hyper-recap-licenses"
