@@ -22,6 +22,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -120,6 +121,11 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
             }
 
+        root.addView(ImageView(this).apply {
+            setImageResource(R.drawable.hyper_recap_logo)
+            contentDescription = "Hyper Recap AI Logo"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(176, 176))
         root.addView(label("HYPER RECAP AI", 27f, 0xFF8EA5FF.toInt()))
         root.addView(label("Local Movie Recap Studio", 15f, 0xFFB8C0D9.toInt()))
         root.addView(space(10))
