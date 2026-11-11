@@ -440,7 +440,6 @@ class MainActivity : Activity() {
             status.text = "Offline Recap ပြီးပါပြီ။ SRT သည် narration အတွက် ခန့်မှန်း timing ဖြစ်သည်။ မူရင်း Video နှင့် sync လုပ်ရန် SRT ဖိုင်ကို import လုပ်ပြီး စာသားမပြောင်းဘဲ Generate လုပ်ပါ။"
         }
         recapOutput.text = latestRecap
-        status.text = "Offline Recap ပြီးပါပြီ။ SRT Subtitle draft လည်း ပြင်ဆင်ပြီးပါပြီ။ Timing သည် narration အတွက် ခန့်မှန်းတန်ဖိုးဖြစ်သည်။"
     }
 
     private fun saveSubtitles() {
