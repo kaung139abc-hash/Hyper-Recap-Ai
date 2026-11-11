@@ -212,6 +212,8 @@ class MainActivity : Activity() {
             text = "English → Myanmar AI Translation (Internet လိုအပ်)"
             setOnClickListener { requireLicense { translateTranscriptToMyanmar() } }
         }, matchWidth())
+        // Internal transcript buffer: populated automatically by Whisper; not shown as a required manual input.
+        transcriptInput = EditText(this)
         root.addView(label("YOUR RECAP", 18f, 0xFF8EA5FF.toInt()))
         recapOutput = label("Video ကိုရွေးပြီး AUTO RECAP ကိုနှိပ်ပါ။ ရလဒ် ဒီနေရာမှာ ပေါ်လာပါမည်။", 14f)
         recapOutput.gravity = Gravity.START
