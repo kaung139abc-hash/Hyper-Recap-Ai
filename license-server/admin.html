@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hyper Recap AI — License Admin</title>
+<style>
+body{font:15px system-ui;max-width:1000px;margin:32px auto;padding:0 16px;background:#10131a;color:#edf1f7}input,select,button{padding:10px;margin:4px;border-radius:8px;border:1px solid #475064;background:#1b2230;color:#fff}button{cursor:pointer;background:#315bd6}section{background:#191f2b;padding:16px;border-radius:12px;margin:14px 0}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:9px;border-bottom:1px solid #394154}small{color:#aab5c7}#out{white-space:pre-wrap;color:#9ee6b0}
+</style>
+<h1>Hyper Recap AI — License Admin</h1>
+<section><h3>Connection</h3><input id="url" placeholder="https://your-worker.workers.dev" size="42"><input id="secret" type="password" placeholder="ADMIN_SECRET"><button onclick="load()">Connect / Refresh</button><p><small>Admin secret is held only in this browser tab. Do not use on a shared device.</small></p></section>
+<section><h3>Create license</h3><select id="plan"><option value="trial">Free Trial (3 days)</option><option value="monthly">Monthly (30 days)</option><option value="lifetime">Lifetime</option></select><input id="devices" type="number" min="1" max="5" value="1" placeholder="Device limit"><input id="note" placeholder="Customer / payment note"><button onclick="create()">Generate license</button><div id="out"></div></section>
+<section><h3>Customers / Licenses</h3><div id="stats"></div><div style="overflow:auto"><table><thead><tr><th>ID</th><th>Plan</th><th>Status</th><th>Expires</th><th>Devices</th><th>Note</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table></div></section>
+<script>
+const $=id=>document.getElementById(id), base=()=> $('url').value.trim().replace(/\/$/,'');
+async function api(path,data={}){const r=await fetch(base()+path,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+$('secret').value},body:JSON.stringify(data)});const j=await r.json();if(!r.ok)throw Error(j.error||j.reason||r.status);return j}
+async function load(){try{const [s,l]=await Promise.all([api('/admin/stats'),api('/admin/list')]);$('stats').textContent='Total: '+s.total+' | Active: '+(s.active||0);$('rows').innerHTML=l.licenses.map(x=>'<tr><td>'+x.id+'</td><td>'+x.plan+'</td><td>'+x.status+'</td><td>'+(x.expires_at||'Never')+'</td><td>'+x.devices.length+'/'+x.device_limit+'</td><td>'+esc(x.customer_note||'')+'</td><td><button onclick="extend('+x.id+')">+30 days</button> <button onclick="revoke('+x.id+')">Revoke</button></td></tr>').join('')}catch(e){alert(e.message)}}
+function esc(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function create(){try{const r=await api('/admin/create',{plan:$('plan').value,deviceLimit:+$('devices').value,customerNote:$('note').value});$('out').textContent='NEW LICENSE KEY (copy and send to buyer):\n'+r.licenseKey+'\nPlan: '+r.plan+'\nExpires: '+(r.expiresAt||'Never');await load()}catch(e){alert(e.message)}}
+async function revoke(id){if(confirm('Revoke license #'+id+'?')){try{await api('/admin/revoke',{id});await load()}catch(e){alert(e.message)}}}
+async function extend(id){try{await api('/admin/extend',{id,days:30});await load()}catch(e){alert(e.message)}}
+</script></html>
