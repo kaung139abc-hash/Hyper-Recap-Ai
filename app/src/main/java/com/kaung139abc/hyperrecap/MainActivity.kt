@@ -153,6 +153,13 @@ class MainActivity : Activity() {
             setOnClickListener { previewVoice() }
         }, matchWidth())
         root.addView(Button(this).apply {
+            text = "အသံရပ်ရန်"
+            setOnClickListener {
+                tts?.stop()
+                status.text = "အသံဖတ်ခြင်း ရပ်လိုက်ပါပြီ။"
+            }
+        }, matchWidth())
+        root.addView(Button(this).apply {
             text = "ဖုန်း၏ TTS အသံအသစ်များ ထည့်သွင်းရန်"
             setOnClickListener {
                 try {
@@ -195,6 +202,41 @@ class MainActivity : Activity() {
         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
     )
 
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh voice data after returning from Android TTS settings.
+        if (tts != null && ::voicePicker.isInitialized) {
+            try {
+                val voices = tts?.voices ?: emptySet()
+                val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
+                availableVoices = voices.filter { voice ->
+                    val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
+                    excluded.none { identity.contains(it) }
+                }.sortedWith(compareBy<Voice>(
+                    { if (it.locale.language == "my") 0 else 1 },
+                    { -it.quality }, { it.locale.displayName }, { it.name }
+                ))
+                val labels = availableVoices.map { voice ->
+                    val mode = if (voice.isNetworkConnectionRequired) "Online" else "Offline"
+                    "${voice.locale.displayName} — ${voice.name} — $mode — Quality ${voice.quality}"
+                }
+                voicePicker.adapter = ArrayAdapter(
+                    this, android.R.layout.simple_spinner_dropdown_item,
+                    if (labels.isEmpty()) listOf("အသုံးပြုနိုင်သော အသံမရှိပါ") else labels
+                )
+                if (labels.isNotEmpty()) {
+                    voicePicker.setSelection(0)
+                    tts?.voice = availableVoices[0]
+                    voiceInfo.text = "အသံ ${labels.size} မျိုး ရရှိသည်။ Settings မှ ပြန်လာတိုင်း စာရင်းကို အသစ်ပြန်ဖတ်ထားသည်။"
+                } else {
+                    voiceInfo.text = "TTS အသံမတွေ့ပါ။ Android Text-to-speech Settings မှ Voice data ထည့်ပါ။"
+                }
+            } catch (e: Exception) {
+                voiceInfo.text = "အသံစာရင်း ပြန်ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}"
+            }
+        }
+    }
 
     private fun initializeSpeech() {
         tts = TextToSpeech(this) { result ->
