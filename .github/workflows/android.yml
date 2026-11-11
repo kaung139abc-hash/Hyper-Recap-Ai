@@ -61,9 +61,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Hyper-Recap-AI-debug
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload signed release APK artifact
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hyper-Recap-AI-signed-release
+          path: app/build/outputs/apk/release/app-release.apk
       - name: Publish latest installable APK
         if: success() && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -73,7 +77,15 @@ jobs:
           target_commitish: main
           prerelease: true
           make_latest: true
-          files: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+          files: app/build/outputs/apk/debug/app-debug.apk
+          fail_on_unmatched_files: true
+      - name: Publish signed release APK
+        if: success() && github.ref == 'refs/heads/main' && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Hyper Recap AI — Latest Android APK
+          target_commitish: main
+          prerelease: true
+          files: app/build/outputs/apk/release/app-release.apk
           fail_on_unmatched_files: true
