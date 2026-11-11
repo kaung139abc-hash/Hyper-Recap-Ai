@@ -431,7 +431,7 @@ class MainActivity : Activity() {
         val sourceCues = importedSrtCues
         if (sourceCues.isNotEmpty() && source == importedSrtSource) {
             val selectedCues = SrtTranscript.summarize(sourceCues)
-            latestRecap = selectedCues.joinToString("\\n\\n") { it.text }
+            latestRecap = selectedCues.joinToString("\n\n") { it.text }
             latestSrt = SrtTranscript.toSrt(selectedCues)
             status.text = "Source-timed SRT Recap ပြီးပါပြီ။ Recap စာသားနှင့် SRT တို့သည် မူရင်း Video timestamp များအတိုင်း ကိုက်ညီသည်။"
         } else {
