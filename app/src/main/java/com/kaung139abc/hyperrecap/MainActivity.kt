@@ -121,6 +121,21 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
             }
 
+        fun sectionTitle(text: String) = TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTextColor(0xFF9FE9E0.toInt())
+            typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.NORMAL)
+            letterSpacing = 0.06f
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            setPadding(14, 13, 14, 13)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFF121B2D.toInt())
+                cornerRadius = 13f * resources.displayMetrics.density
+                setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1), 0xFF354565.toInt())
+            }
+        }
+
         val brandHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -153,6 +168,7 @@ class MainActivity : Activity() {
         brandHeader.addView(brandText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         root.addView(brandHeader, matchWidth())
         root.addView(space(10))
+        root.addView(sectionTitle("01  •  LICENSE & ACCOUNT"), matchWidth())
         val licenseKeyInput = EditText(this).apply {
             hint = "License Key ထည့်ပါ"
             setHintTextColor(0xFF9AA4BC.toInt())
@@ -184,6 +200,7 @@ class MainActivity : Activity() {
         }, matchWidth())
         root.addView(space(16))
 
+        root.addView(sectionTitle("02  •  VIDEO SOURCE"), matchWidth())
         linkInput = EditText(this).apply {
             hint = "Video link ကို ဒီမှာ Paste လုပ်ပါ"
             setHintTextColor(0xFF9AA4BC.toInt())
@@ -205,6 +222,7 @@ class MainActivity : Activity() {
             setOnClickListener { openSocialLink(linkInput.text.toString()) }
         }, matchWidth())
 
+        root.addView(sectionTitle("03  •  AUTOMATIC RECAP"), matchWidth())
         val choose = Button(this).apply {
             text = "ဖုန်းထဲက Video ရွေးရန်"
             setOnClickListener { requireLicense { chooseVideo() } }
@@ -228,6 +246,7 @@ class MainActivity : Activity() {
         selectedInfo.setPadding(0, 24, 0, 16)
         root.addView(selectedInfo)
 
+        root.addView(sectionTitle("04  •  AI TOOLS"), matchWidth())
         root.addView(Button(this).apply {
             text = "Cloud AI Generative Movie Recap (Internet လိုအပ်)"
             setOnClickListener { requireLicense { generateCloudAiRecap() } }
@@ -236,6 +255,7 @@ class MainActivity : Activity() {
             text = "English → Myanmar AI Translation (Internet လိုအပ်)"
             setOnClickListener { requireLicense { translateTranscriptToMyanmar() } }
         }, matchWidth())
+        root.addView(sectionTitle("05  •  RECAP RESULT & EXPORT"), matchWidth())
         // Internal transcript buffer: populated automatically by Whisper; not shown as a required manual input.
         transcriptInput = EditText(this)
         root.addView(label("YOUR RECAP", 18f, 0xFF8EA5FF.toInt()))
@@ -255,7 +275,8 @@ class MainActivity : Activity() {
             setOnClickListener { requireLicense { requestSubtitleMp4Destination() } }
         }, matchWidth())
 
-        root.addView(space(18))
+        root.addView(sectionTitle("06  •  VOICE STUDIO"), matchWidth())
+        root.addView(space(6))
         root.addView(label("VOICE STUDIO", 18f, 0xFF8EA5FF.toInt()))
         root.addView(label("ဖုန်းထဲတွင် ရရှိနိုင်သော အသံများကို ရွေးချယ်ပါ", 13f, 0xFFB8C0D9.toInt()))
         voicePicker = Spinner(this)
