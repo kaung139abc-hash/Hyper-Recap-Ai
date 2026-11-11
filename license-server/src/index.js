@@ -8,6 +8,8 @@ export default {
  async fetch(req, env) {
   if(req.method==="OPTIONS") return new Response(null,{headers:cors});
   const url=new URL(req.url), path=url.pathname;
+  const declaredLength=Number(req.headers.get("Content-Length")||0);
+  if(declaredLength>150_000) return json({error:"Request body too large"},413);
   if(path==="/health") return json({ok:true,service:"Hyper Recap AI License Server"});
   if(req.method==="GET" && (path==="/admin" || path==="/admin.html")) {
    return env.ASSETS.fetch(new Request(new URL("/admin.html",url),req));
@@ -39,7 +41,7 @@ export default {
    const digest=await hash(b.licenseKey.trim().toUpperCase());
    const license=await env.DB.prepare("SELECT * FROM licenses WHERE key_hash=?").bind(digest).first();
    if(!license || license.status!=="active") return json({error:"INVALID_OR_REVOKED"},403);
-   if(license.expires_at && Date.parse(license.expires_at)<=Date.now()) return json({error:"EXPIRED"},403);
+   if(license.expires_at){ const expiry=Date.parse(license.expires_at); if(!Number.isFinite(expiry) || expiry<=Date.now()) return json({error:"EXPIRED"},403); }
    let devices=[]; try{devices=JSON.parse(license.devices_json||"[]")}catch{}
    if(!Array.isArray(devices) || !devices.includes(b.deviceId)) return json({error:"DEVICE_NOT_ACTIVATED"},403);
    try{
