@@ -1,27 +1,41 @@
 package com.kaung139abc.hyperrecap
 
 import java.util.Locale
+import kotlin.math.ln
+import kotlin.math.sqrt
 
 /**
- * Extractive on-device summarizer. It does not call a network service or claim to be
- * generative AI. Long transcripts are summarized in bounded text windows first so
- * a multi-hour transcript does not create one enormous scoring pass.
+ * Offline, extractive recap engine.
+ *
+ * It selects evidence already present in the transcript; it does not invent plot
+ * details or claim to be a generative language model. Large transcripts are
+ * summarized hierarchically in bounded windows to keep memory use predictable.
  */
 object OfflineRecap {
-    private const val WINDOW_CHARS = 8_000
+    private const val WINDOW_CHARS = 7_000
+    private const val MIN_SENTENCE_CHARS = 12
+    private val sentenceBoundary = Regex("(?<=[။.!?])\\s+|\\n+")
+    private val tokenizer = Regex("[\\p{L}\\p{N}]{2,}")
+
+    private val stopWords = setOf(
+        "the", "and", "that", "this", "with", "from", "then", "when", "what",
+        "where", "which", "there", "their", "have", "were", "been", "will",
+        "would", "could", "should", "about", "into", "your", "you", "they",
+        "them", "she", "her", "his", "him", "for", "are", "was", "but",
+        "ဖြစ်", "သည်", "တွေ", "တော့", "များ", "ကို", "မှာ", "နှင့်", "ပြီး",
+        "လည်း", "သော", "တယ်", "က", "နဲ့", "မ", "၏", "၍", "ထို့"
+    )
 
     fun summarize(text: String, maxSentences: Int = 8): String {
         val clean = text.replace("\r", " ").trim()
         if (clean.isBlank()) return "အကျဉ်းချုပ်ရန် စာသား မတွေ့ပါ။"
-        if (clean.length <= WINDOW_CHARS) return summarizeWindow(clean, maxSentences)
-
+        val limit = maxSentences.coerceIn(1, 30)
         val windows = splitIntoWindows(clean)
-        val intermediate = windows.mapNotNull { window ->
-            summarizeWindow(window, 4).takeIf { it.isNotBlank() }
-        }
+        if (windows.size == 1) return summarizeWindow(windows.first(), limit)
+        val intermediate = windows.mapNotNull { summarizeWindow(it, 5).takeIf(String::isNotBlank) }
         if (intermediate.isEmpty()) return "အကျဉ်းချုပ်ရန် စာကြောင်း မတွေ့ပါ။"
-        val combined = intermediate.joinToString("\n")
-        return summarizeWindow(combined, maxSentences)
+        // The second pass condenses the chronological window summaries.
+        return summarizeWindow(intermediate.joinToString("\n"), limit)
     }
 
     private fun splitIntoWindows(text: String): List<String> {
@@ -30,46 +44,81 @@ object OfflineRecap {
         while (start < text.length) {
             var end = (start + WINDOW_CHARS).coerceAtMost(text.length)
             if (end < text.length) {
-                // Prefer a paragraph or sentence boundary; never move so far that
-                // a single unusually long line prevents forward progress.
                 val boundary = text.lastIndexOfAny(charArrayOf('\n', '။', '.', '!', '?'), end - 1)
                 if (boundary > start + WINDOW_CHARS / 2) end = boundary + 1
             }
             val part = text.substring(start, end).trim()
             if (part.isNotBlank()) result += part
-            start = end
+            start = end.coerceAtLeast(start + 1)
         }
         return result
     }
 
+    private data class Candidate(
+        val index: Int,
+        val text: String,
+        val terms: Set<String>,
+        val score: Double
+    )
+
     private fun summarizeWindow(text: String, maxSentences: Int): String {
         val sentences = text.replace("\r", " ")
-            .split(Regex("(?<=[.!?။])\\s+|\\n+"))
-            .map { it.trim() }
-            .filter { it.length >= 18 }
+            .split(sentenceBoundary)
+            .map { it.trim().trimStart('-', '•', ' ', '\t') }
+            .filter { it.length >= MIN_SENTENCE_CHARS }
+            .distinctBy { normalize(it) }
         if (sentences.isEmpty()) return ""
 
-        val stopWords = setOf(
-            "the", "and", "that", "this", "with", "from", "then", "when",
-            "ဖြစ်", "သည်", "တွေ", "တော့", "များ", "ကို", "မှာ", "နှင့်", "ပြီး"
-        )
-        val tokenizer = Regex("[\\p{L}\\p{N}]{2,}")
-        val frequency = mutableMapOf<String, Int>()
-        sentences.forEach { sentence ->
-            tokenizer.findAll(sentence.lowercase(Locale.ROOT)).forEach { match ->
-                val word = match.value
-                if (word !in stopWords) frequency[word] = (frequency[word] ?: 0) + 1
+        val termLists = sentences.map { sentence ->
+            tokenizer.findAll(sentence.lowercase(Locale.ROOT))
+                .map { it.value }
+                .filter { it !in stopWords }
+                .toList()
+        }
+        val documentFrequency = mutableMapOf<String, Int>()
+        termLists.forEach { terms -> terms.toSet().forEach { term ->
+            documentFrequency[term] = (documentFrequency[term] ?: 0) + 1
+        } }
+        val total = sentences.size.toDouble()
+        val candidates = sentences.mapIndexed { index, sentence ->
+            val terms = termLists[index]
+            val unique = terms.toSet()
+            val weighted = terms.sumOf { term ->
+                val idf = ln(1.0 + (total + 1.0) / ((documentFrequency[term] ?: 0) + 0.5))
+                idf
             }
+            val density = weighted / sqrt(terms.size.coerceAtLeast(1).toDouble())
+            val positionBoost = when {
+                index == 0 -> 1.12
+                index == sentences.lastIndex -> 1.04
+                else -> 1.0
+            }
+            val dialogueBoost = if (sentence.contains('“') || sentence.contains('”') ||
+                sentence.contains('"') || sentence.contains('။')) 1.02 else 1.0
+            Candidate(index, sentence, unique, density * positionBoost * dialogueBoost)
         }
-        val ranked = sentences.mapIndexed { index, sentence ->
-            val words = tokenizer.findAll(sentence.lowercase(Locale.ROOT)).map { it.value }.toList()
-            val score = words.sumOf { (frequency[it] ?: 0).toDouble() } /
-                kotlin.math.sqrt(words.size.coerceAtLeast(1).toDouble())
-            Triple(index, sentence, score)
+
+        val wanted = maxSentences.coerceIn(1, sentences.size)
+        val selected = mutableListOf<Candidate>()
+        val remaining = candidates.toMutableList()
+        while (selected.size < wanted && remaining.isNotEmpty()) {
+            val best = remaining.maxByOrNull { candidate ->
+                val overlap = if (selected.isEmpty()) 0.0 else {
+                    selected.maxOf { prior ->
+                        val union = (candidate.terms + prior.terms).size.coerceAtLeast(1)
+                        candidate.terms.intersect(prior.terms).size.toDouble() / union
+                    }
+                }
+                candidate.score * (1.0 - overlap * 0.72)
+            } ?: break
+            selected += best
+            remaining.remove(best)
         }
-        val count = maxSentences.coerceAtLeast(1).coerceAtMost(sentences.size)
-        return ranked.sortedByDescending { it.third }.take(count).sortedBy { it.first }
-            .mapIndexed { index, item -> "${index + 1}. ${item.second}" }
+        return selected.sortedBy { it.index }
+            .mapIndexed { index, candidate -> "${index + 1}. ${candidate.text}" }
             .joinToString("\n\n")
     }
+
+    private fun normalize(value: String): String =
+        value.lowercase(Locale.ROOT).replace(Regex("[^\\p{L}\\p{N}]"), "")
 }
