@@ -68,7 +68,24 @@ class MainActivity : Activity() {
     private fun handleSharedLink(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND) {
             val shared = intent.getStringExtra(Intent.EXTRA_TEXT)
-            if (!shared.isNullOrBlank() && ::linkInput.isInitialized) linkInput.setText(shared)
+            if (!shared.isNullOrBlank() && ::linkInput.isInitialized) {
+                val detected = SocialLinkSupport.extract(shared)
+                linkInput.setText(detected?.uri?.toString() ?: shared.trim())
+            }
+        }
+    }
+
+    private fun openSocialLink(raw: String) {
+        val link = SocialLinkSupport.extract(raw)
+        if (link == null || link.platform == SocialLinkSupport.Platform.UNKNOWN) {
+            status.text = "YouTube, Facebook, TikTok သို့မဟုတ် Instagram Link မှန်ကန်စွာ ထည့်ပါ။"
+            return
+        }
+        try {
+            startActivity(SocialLinkSupport.openIntent(link))
+            status.text = "${link.platform.label} ကို ဖွင့်လိုက်ပါပြီ။ Platform က ခွင့်ပြုထားသောနည်းဖြင့် Video ကို သိမ်းပြီးနောက် ဖုန်းထဲမှ Video ရွေးပါ။ Login/DRM ကန့်သတ်ချက်များကို ကျော်ဖြတ်ခြင်း မလုပ်ပါ။"
+        } catch (e: Exception) {
+            status.text = "Link ဖွင့်မရပါ: ${e.localizedMessage ?: "Browser မတွေ့ပါ"}"
         }
     }
 
@@ -107,6 +124,10 @@ class MainActivity : Activity() {
             setOnClickListener { downloadDirectVideo(linkInput.text.toString().trim()) }
         }
         root.addView(linkButton, matchWidth())
+        root.addView(Button(this).apply {
+            text = "YouTube / Facebook / TikTok / Instagram Link ဖွင့်ရန်"
+            setOnClickListener { openSocialLink(linkInput.text.toString()) }
+        }, matchWidth())
 
         val choose = Button(this).apply {
             text = "ဖုန်းထဲက Video ရွေးရန်"
@@ -469,7 +490,12 @@ class MainActivity : Activity() {
     }
 
     private fun downloadDirectVideo(raw: String) {
-        val uri = try { Uri.parse(raw) } catch (_: Exception) { null }
+        val social = SocialLinkSupport.extract(raw)
+        if (social != null && social.platform != SocialLinkSupport.Platform.UNKNOWN) {
+            openSocialLink(raw)
+            return
+        }
+        val uri = try { Uri.parse(raw.trim()) } catch (_: Exception) { null }
         if (uri == null || uri.scheme !in listOf("http", "https") || uri.host.isNullOrBlank()) {
             status.text = "မှန်ကန်သော http/https link ထည့်ပါ"
             return
