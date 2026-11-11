@@ -207,7 +207,19 @@ object WhisperTranscriber {
                     stream.release()
                 }
                 if (text.isNotBlank()) {
-                    segments += Segment(startMs, endMs, text)
+                    val pieces = splitSubtitleText(text, 88)
+                    val weights = pieces.map { it.length.coerceAtLeast(1) }
+                    val totalWeight = weights.sum().coerceAtLeast(1)
+                    val windowDuration = endMs - startMs
+                    var cueStart = startMs
+                    pieces.forEachIndexed { pieceIndex, piece ->
+                        val cueEnd = if (pieceIndex == pieces.lastIndex) endMs else {
+                            (cueStart + (windowDuration * weights[pieceIndex] / totalWeight))
+                                .coerceAtMost(endMs)
+                        }
+                        if (cueEnd > cueStart) segments += Segment(cueStart, cueEnd, piece)
+                        cueStart = cueEnd
+                    }
                 }
                 index++
                 onProgress("Whisper Speech-to-Text — ${(endMs * 100 / durationMs).coerceIn(0, 100)}% (အပိုင်း $index)")
@@ -216,6 +228,36 @@ object WhisperTranscriber {
             }
         }
         return segments
+    }
+
+    private fun splitSubtitleText(text: String, maxChars: Int): List<String> {
+        val sentences = text.split(Regex("(?<=[။.!?])\\s+"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        val result = mutableListOf<String>()
+        for (sentence in sentences) {
+            if (sentence.length <= maxChars) {
+                result += sentence
+                continue
+            }
+            val iterator = java.text.BreakIterator.getCharacterInstance(Locale("my"))
+            iterator.setText(sentence)
+            var part = StringBuilder()
+            var start = iterator.first()
+            var end = iterator.next()
+            while (end != java.text.BreakIterator.DONE) {
+                val cluster = sentence.substring(start, end)
+                if (part.length + cluster.length > maxChars && part.isNotEmpty()) {
+                    result += part.toString().trim()
+                    part = StringBuilder()
+                }
+                part.append(cluster)
+                start = end
+                end = iterator.next()
+            }
+            if (part.isNotEmpty()) result += part.toString().trim()
+        }
+        return result.filter { it.isNotBlank() }
     }
 
     private fun resample(input: FloatArray, sourceRate: Int, targetRate: Int): FloatArray {
