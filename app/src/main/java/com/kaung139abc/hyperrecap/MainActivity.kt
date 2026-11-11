@@ -211,17 +211,17 @@ class MainActivity : Activity() {
         root.addView(transcriptInput, matchWidth())
         root.addView(Button(this).apply {
             text = "TXT / SRT Transcript ဖိုင်ထည့်ရန်"
-            setOnClickListener {
+            setOnClickListener { requireLicense {
                 val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "*/*"
                     putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/plain", "application/x-subrip", "text/srt"))
                 }
                 startActivityForResult(pick, REQUEST_TRANSCRIPT)
-            }
+            } }
         }, matchWidth())
         root.addView(Button(this).apply {
-            text = "Generate Offline Recap"
+            text = "Generate Offline Extractive Recap"
             setOnClickListener { requireLicense { generateRecap() } }
         }, matchWidth())
         recapOutput = label("Recap ရလဒ် ဒီနေရာမှာ ပေါ်လာပါမည်", 14f)
@@ -284,14 +284,14 @@ class MainActivity : Activity() {
             setOnClickListener { requireLicense { saveRecapAudio() } }
         }, matchWidth())
         root.addView(Button(this).apply {
-            text = "မြန်မာ Neural AI Voice — ဖန်တီးပြီး နားထောင်ရန်"
-            setOnClickListener { requireLicense { generateMyanmarNeuralVoice() } }
+            text = "မြန်မာ Neural AI Voice (Commercial Model မရသေး)"
+            setOnClickListener { requireLicense { status.text = "လက်ရှိ MMS မြန်မာအသံ Model သည် CC BY-NC 4.0 ဖြစ်၍ စီးပွားဖြစ်အသုံးပြုခွင့်မရှိပါ။ Commercial License ရရှိသော Model ထည့်သွင်းပြီးမှ ဖွင့်ပေးပါမည်။" } }
         }, matchWidth())
         root.addView(Button(this).apply {
-            text = "မြန်မာ Neural Voice WAV သိမ်းရန်"
-            setOnClickListener { requireLicense { saveMyanmarNeuralWav() } }
+            text = "မြန်မာ Neural Voice WAV သိမ်းရန် (မရသေး)"
+            setOnClickListener { requireLicense { status.text = "စီးပွားဖြစ်အသုံးပြုခွင့်ရှိသော မြန်မာ Neural TTS Model မထည့်ရသေးပါ။" } }
         }, matchWidth())
-        root.addView(label("MMS မြန်မာအသံ Model — ပထမဆုံးအကြိမ် Download လုပ်ပြီးနောက် Offline အသုံးပြုနိုင်သည်။ Model License: CC BY-NC 4.0 (စီးပွားဖြစ်အသုံးပြုခွင့်မပါ)။", 11f, 0xFFFFD28A.toInt()))
+        root.addView(label("မြန်မာ Neural TTS ကို စီးပွားဖြစ်ခွင့်ရှိသော Model ရရှိသည်အထိ ပိတ်ထားသည်။ လက်ရှိအသံရွေးချယ်မှုတွင် ဖုန်း၏ TTS Engine အသံများကို အသုံးပြုပါ။", 11f, 0xFFFFD28A.toInt()))
 
         status = label("အင်တာနက်မလို၊ API key မလို၊ daily quota မရှိသော local text recap", 13f, 0xFFB8C0D9.toInt())
         root.addView(status)
