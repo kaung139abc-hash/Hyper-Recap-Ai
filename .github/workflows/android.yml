@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -43,3 +43,14 @@ jobs:
         with:
           name: Hyper-Recap-AI-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish latest installable APK
+        if: success() && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Hyper Recap AI — Latest Android APK
+          target_commitish: main
+          prerelease: true
+          make_latest: true
+          files: app/build/outputs/apk/debug/app-debug.apk
+          fail_on_unmatched_files: true
