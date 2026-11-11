@@ -29,7 +29,6 @@ import android.widget.SeekBar
 import android.widget.TextView
 import java.util.Locale
 import java.io.File
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Composition
@@ -539,9 +538,7 @@ class MainActivity : Activity() {
             val edited = EditedMediaItem.Builder(MediaItem.fromUri(source))
                 .setEffects(Effects(emptyList(), listOf(overlay)))
                 .build()
-            val sequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO))
-                .addItem(edited)
-                .build()
+            val sequence = EditedMediaItemSequence.Builder(listOf(edited)).build()
             val composition = Composition.Builder(sequence).build()
             output.createNewFile()
             val transformer = Transformer.Builder(this)
