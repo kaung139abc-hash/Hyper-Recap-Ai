@@ -10,7 +10,7 @@ export default {
   const url=new URL(req.url), path=url.pathname;
   const declaredLength=Number(req.headers.get("Content-Length")||0);
   if(declaredLength>150_000) return json({error:"Request body too large"},413);
-  if(path==="/health") return json({ok:true,service:"Hyper Recap AI License Server"});
+  if(path==="/health") return json({ok:true,service:"Hyper Recap AI License Server",aiConfigured:!!env.AI,databaseConfigured:!!env.DB,adminConfigured:!!env.ADMIN_SECRET});
   if(req.method==="GET" && (path==="/admin" || path==="/admin.html")) {
    return env.ASSETS.fetch(new Request(new URL("/admin.html",url),req));
   }
