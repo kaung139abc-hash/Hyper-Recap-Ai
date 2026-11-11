@@ -32,6 +32,27 @@ export default {
    }
    return json({valid:true,plan:row.plan,expiresAt:row.expires_at,deviceLimit:row.device_limit});
   }
+  if(path==="/v1/ai/vision"){
+   if(!env.AI) return json({error:"AI binding is not configured"},503);
+   if(typeof b.licenseKey!=="string" || typeof b.deviceId!=="string" || !Array.isArray(b.frames) || b.frames.length<1 || b.frames.length>2) return json({error:"licenseKey, deviceId and 1-2 frames are required"},400);
+   const digest=await hash(b.licenseKey.trim().toUpperCase());
+   const license=await env.DB.prepare("SELECT * FROM licenses WHERE key_hash=?").bind(digest).first();
+   if(!license || license.status!=="active") return json({error:"INVALID_OR_REVOKED"},403);
+   if(license.expires_at && Date.parse(license.expires_at)<=Date.now()) return json({error:"EXPIRED"},403);
+   let devices=[]; try{devices=JSON.parse(license.devices_json||"[]")}catch{}
+   if(!Array.isArray(devices) || !devices.includes(b.deviceId)) return json({error:"DEVICE_NOT_ACTIVATED"},403);
+   try{
+    const content=[{type:"text",text:"Describe only visible, concrete events in these sequential movie frames. Infer scene continuity cautiously. Identify visible people only by visual role (for example, a man in a uniform), never invent names, dialogue, motives or events. Return concise Burmese scene notes, mentioning uncertainty where needed."}];
+    for(const frame of b.frames){
+     if(typeof frame!=="string" || frame.length>55000 || !/^[A-Za-z0-9+/=]+$/.test(frame)) return json({error:"Invalid or oversized frame"},400);
+     content.push({type:"image_url",image_url:{url:"data:image/jpeg;base64,"+frame}});
+    }
+    const result=await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct",{messages:[{role:"user",content}],max_tokens:500,temperature:0.2});
+    const output=result?.response||result?.result?.response||"";
+    if(!output) return json({error:"Vision model returned empty output"},502);
+    return json({ok:true,description:output.trim(),model:"llama-3.2-11b-vision-instruct"});
+   }catch(error){return json({error:"Vision inference failed: "+String(error?.message||error).slice(0,240)},502);}
+  }
   if(path==="/v1/ai/recap" || path==="/v1/ai/translate"){
    if(!env.AI) return json({error:"AI binding is not configured"},503);
    if(typeof b.licenseKey!=="string" || typeof b.deviceId!=="string" || typeof b.text!=="string") return json({error:"licenseKey, deviceId and text are required"},400);
@@ -48,8 +69,8 @@ export default {
     if(path.endsWith("/recap")){
      const result=await env.AI.run("@cf/meta/llama-3.1-8b-instruct",{
       messages:[
-       {role:"system",content:"You are a professional long-form movie recap narrator writing natural, fluent Burmese. Reconstruct the story in chronological order from the transcript. Identify the protagonist and other important characters when their names are clear; explain their relationships, goals, conflicts, causes and consequences. Preserve the major turning points, reveals, decisions, climax and ending when present in the source. Include concrete events rather than generic statements such as 'many things happen'. Connect scenes into a coherent narration with natural Burmese transitions. Do not merely summarize dialogue line by line. Use only information supported by the transcript: never invent visual details, character names, motives, scenes or an ending. If the transcript has gaps or ends before the movie does, do not pretend the missing events are known. Return only the Burmese narration, without headings, bullets or analysis."},
-       {role:"user",content:"Write a substantial, story-focused Burmese movie recap from this transcript. Cover the important events and turning points from beginning to end, while avoiding repetitive dialogue and minor filler.\n\n"+text}
+       {role:"system",content:"You are a professional long-form movie recap narrator writing natural, fluent Burmese. Reconstruct the story in chronological order from the transcript. Identify the protagonist and other important characters when their names are clear; explain their relationships, goals, conflicts, causes and consequences. Preserve the major turning points, reveals, decisions, climax and ending when present in the source. Include concrete events rather than generic statements such as 'many things happen'. Connect scenes into a coherent narration with natural Burmese transitions. Do not merely summarize dialogue line by line. Use only information supported by the transcript and optional visual scene notes: never invent character names, dialogue, motives, scenes or an ending. Treat visual notes as observations, not proof of unseen events. If the transcript or visual notes have gaps, do not pretend missing events are known. Return only the Burmese narration, without headings, bullets or analysis."},
+       {role:"user",content:"Write a substantial, story-focused Burmese movie recap from this transcript. Cover important events and turning points from beginning to end, while avoiding repetitive dialogue and minor filler."+(typeof b.visualContext==="string" && b.visualContext.trim() ? "\n\nVISUAL SCENE NOTES (use cautiously; these are sampled frames, not a complete view):\n"+b.visualContext.slice(0,12000) : "")+"\n\nTRANSCRIPT:\n"+text}
       ],
       max_tokens:1200,
       temperature:0.35
