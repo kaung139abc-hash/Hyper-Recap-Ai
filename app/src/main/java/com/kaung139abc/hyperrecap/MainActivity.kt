@@ -126,8 +126,13 @@ class MainActivity : Activity() {
             contentDescription = "Hyper Recap AI Logo"
             scaleType = ImageView.ScaleType.FIT_CENTER
         }, LinearLayout.LayoutParams(176, 176))
+        root.addView(android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.hyper_recap_logo)
+            contentDescription = "Hyper Recap AI"
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(180, 180))
         root.addView(label("HYPER RECAP AI", 27f, 0xFF8EA5FF.toInt()))
-        root.addView(label("Local Movie Recap Studio", 15f, 0xFFB8C0D9.toInt()))
+        root.addView(label("RECAP • TRANSLATE • DUB • ENJOY", 12f, 0xFFB8C0D9.toInt()))
         root.addView(space(10))
         val licenseKeyInput = EditText(this).apply {
             hint = "License Key ထည့်ပါ"
