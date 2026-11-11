@@ -30,6 +30,40 @@ export default {
    }
    return json({valid:true,plan:row.plan,expiresAt:row.expires_at,deviceLimit:row.device_limit});
   }
+  if(path==="/v1/ai/recap" || path==="/v1/ai/translate"){
+   if(!env.AI) return json({error:"AI binding is not configured"},503);
+   if(typeof b.licenseKey!=="string" || typeof b.deviceId!=="string" || typeof b.text!=="string") return json({error:"licenseKey, deviceId and text are required"},400);
+   const text=b.text.trim();
+   const maxChars=path.endsWith("/recap")?24000:6000;
+   if(text.length<30 || text.length>maxChars) return json({error:"Text length must be between 30 and "+maxChars+" characters"},400);
+   const digest=await hash(b.licenseKey.trim().toUpperCase());
+   const license=await env.DB.prepare("SELECT * FROM licenses WHERE key_hash=?").bind(digest).first();
+   if(!license || license.status!=="active") return json({error:"INVALID_OR_REVOKED"},403);
+   if(license.expires_at && Date.parse(license.expires_at)<=Date.now()) return json({error:"EXPIRED"},403);
+   let devices=[]; try{devices=JSON.parse(license.devices_json||"[]")}catch{}
+   if(!Array.isArray(devices) || !devices.includes(b.deviceId)) return json({error:"DEVICE_NOT_ACTIVATED"},403);
+   try{
+    if(path.endsWith("/recap")){
+     const result=await env.AI.run("@cf/meta/llama-3.1-8b-instruct",{
+      messages:[
+       {role:"system",content:"You are a careful movie recap writer. Write a coherent, chronological, engaging recap in Burmese. Use only facts stated in the transcript. Do not invent characters, events, motivations, or an ending. Preserve names. If the transcript is incomplete, say so. Return only the recap."},
+       {role:"user",content:"Create a detailed but concise movie recap from this transcript:\\n\\n"+text}
+      ],
+      max_tokens:1200,
+      temperature:0.35
+     });
+     const output=result?.response||result?.result?.response||"";
+     if(!output) return json({error:"AI returned an empty recap"},502);
+     return json({ok:true,recap:output.trim(),model:"llama-3.1-8b-instruct"});
+    }
+    const result=await env.AI.run("@cf/meta/m2m100-1.2b",{text,source_lang:"en",target_lang:"my"});
+    const output=result?.translation||result?.translated_text||"";
+    if(!output) return json({error:"AI returned an empty translation"},502);
+    return json({ok:true,translation:output,model:"m2m100-1.2b"});
+   }catch(error){
+    return json({error:"AI inference failed: "+String(error?.message||error).slice(0,240)},502);
+   }
+  }
   if(path.startsWith("/admin/")){
    if(!admin(req,env)) return json({error:"Unauthorized"},401);
    if(path==="/admin/create"){
