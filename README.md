@@ -37,7 +37,15 @@ YouTube, Facebook, TikTok and Instagram page URLs are not equivalent to direct v
 - Whisper processes the extracted PCM audio in non-overlapping 28-second windows with 2 CPU threads to limit peak memory and avoid duplicate subtitle text at chunk boundaries. Sentence cue timing is estimated within each window, not word-level alignment.
 - Subtitle MP4 export re-encodes video frames and can be slow, warm the phone, and consume substantial battery on long movies. Keep the phone cool and plugged in for long exports. It preserves the source audio track through Media3's composition pipeline when the source contains a supported audio track.
 
-## Build and download APK
+## Install the latest Android APK
+
+After a successful build on `main`, the workflow publishes the debug APK to the public rolling release:
+
+- [Download latest Hyper Recap AI APK](https://github.com/kaung139abc-hash/Hyper-Recap-Ai/releases/tag/android-latest)
+
+If the release has not appeared yet, wait for the latest [Android APK build](https://github.com/kaung139abc-hash/Hyper-Recap-Ai/actions) to finish successfully.
+
+## Build and download APK manually
 
 1. Open the repository's **Actions** tab.
 2. Select **Android APK** and open the latest run for the `main` branch.
