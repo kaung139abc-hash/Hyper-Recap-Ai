@@ -7,6 +7,8 @@ import android.database.Cursor
 import android.media.MediaMetadataRetriever
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
+import android.speech.tts.UtteranceProgressListener
+import android.os.Bundle
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -21,6 +23,7 @@ import android.widget.ArrayAdapter
 import android.widget.SeekBar
 import android.widget.TextView
 import java.util.Locale
+import java.io.File
 
 class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
@@ -35,6 +38,8 @@ class MainActivity : Activity() {
     private lateinit var speechRate: SeekBar
     private lateinit var speechPitch: SeekBar
     private lateinit var voiceInfo: TextView
+    private var pendingAudioUri: Uri? = null
+    private var pendingAudioFile: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -148,6 +153,11 @@ class MainActivity : Activity() {
             setOnClickListener { previewVoice() }
         }, matchWidth())
 
+        root.addView(Button(this).apply {
+            text = "Recap အသံဖိုင် WAV သိမ်းရန်"
+            setOnClickListener { saveRecapAudio() }
+        }, matchWidth())
+
         status = label("အင်တာနက်မလို၊ API key မလို၊ daily quota မရှိသော local text recap", 13f, 0xFFB8C0D9.toInt())
         root.addView(status)
 
@@ -182,6 +192,35 @@ class MainActivity : Activity() {
                 voiceInfo.text = "ဖုန်း၏ Text-to-Speech Engine ကို စတင်မရပါ။ Android Settings မှ TTS engine/voice data ကို စစ်ဆေးပါ။"
                 return@TextToSpeech
             }
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onError(utteranceId: String?) {
+                    runOnUiThread { status.text = "အသံဖိုင်ဖန်တီးရာတွင် အမှားဖြစ်နေပါသည်။" }
+                    pendingAudioFile?.delete()
+                    pendingAudioFile = null
+                    pendingAudioUri = null
+                }
+                override fun onDone(utteranceId: String?) {
+                    if (utteranceId != "hyper_recap_audio_export") return
+                    val sourceFile = pendingAudioFile
+                    val destination = pendingAudioUri
+                    if (sourceFile == null || destination == null) return
+                    Thread {
+                        try {
+                            contentResolver.openOutputStream(destination)?.use { output ->
+                                sourceFile.inputStream().use { input -> input.copyTo(output) }
+                            } ?: throw IllegalStateException("Output stream unavailable")
+                            runOnUiThread { status.text = "Recap အသံဖိုင် WAV အဖြစ် သိမ်းပြီးပါပြီ။" }
+                        } catch (e: Exception) {
+                            runOnUiThread { status.text = "အသံဖိုင် သိမ်းမရပါ: ${e.localizedMessage ?: "Error"}" }
+                        } finally {
+                            sourceFile.delete()
+                            pendingAudioFile = null
+                            pendingAudioUri = null
+                        }
+                    }.start()
+                }
+            })
             try {
                 val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
                 availableVoices = (tts?.voices ?: emptySet())
@@ -216,6 +255,49 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 voiceInfo.text = "အသံစာရင်း ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}"
             }
+        }
+    }
+
+
+    private fun saveRecapAudio() {
+        if (latestRecap.isBlank()) {
+            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
+            return
+        }
+        if (tts == null || availableVoices.isEmpty()) {
+            status.text = "အသုံးပြုနိုင်သော Voice မရှိသေးပါ။"
+            return
+        }
+        val saveIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "audio/wav"
+            putExtra(Intent.EXTRA_TITLE, "HyperRecap.wav")
+        }
+        startActivityForResult(saveIntent, REQUEST_SAVE_AUDIO)
+    }
+
+    private fun synthesizeRecapAudio(destination: Uri) {
+        val engine = tts ?: return
+        try {
+            engine.setSpeechRate(0.5f + speechRate.progress / 100f)
+            engine.setPitch(0.5f + speechPitch.progress / 100f)
+            val file = File(cacheDir, "hyper_recap_${System.currentTimeMillis()}.wav")
+            pendingAudioUri = destination
+            pendingAudioFile = file
+            val result = engine.synthesizeToFile(latestRecap, Bundle(), file, "hyper_recap_audio_export")
+            if (result != TextToSpeech.SUCCESS) {
+                file.delete()
+                pendingAudioUri = null
+                pendingAudioFile = null
+                status.text = "ဒီ TTS Engine က အသံဖိုင်ထုတ်ပေးမှုကို မပံ့ပိုးပါ။"
+            } else {
+                status.text = "အသံဖိုင် WAV ဖန်တီးနေပါသည်။ ခဏစောင့်ပါ..."
+            }
+        } catch (e: Exception) {
+            pendingAudioFile?.delete()
+            pendingAudioFile = null
+            pendingAudioUri = null
+            status.text = "အသံဖိုင်ဖန်တီးမရပါ: ${e.localizedMessage ?: "Error"}"
         }
     }
 
@@ -319,6 +401,10 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
+        if (requestCode == REQUEST_SAVE_AUDIO) {
+            synthesizeRecapAudio(uri)
+            return
+        }
         if (requestCode == REQUEST_SAVE) {
             try {
                 contentResolver.openOutputStream(uri)?.use { it.write(latestRecap.toByteArray(Charsets.UTF_8)) }
@@ -360,5 +446,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002 }
+    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003 }
 }
