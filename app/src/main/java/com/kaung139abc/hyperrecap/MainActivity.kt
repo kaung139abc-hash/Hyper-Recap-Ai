@@ -9,6 +9,7 @@ import android.media.MediaExtractor
 import android.media.MediaMuxer
 import android.media.MediaFormat
 import android.media.MediaCodec
+import android.media.MediaPlayer
 import java.nio.ByteBuffer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
@@ -63,6 +64,9 @@ class MainActivity : Activity() {
     @Volatile private var transcriptionInProgress = false
     private var pendingSubtitleDestination: Uri? = null
     private var activeTransformer: Transformer? = null
+    private var latestMyanmarNeuralWav: File? = null
+    private var neuralPlayer: MediaPlayer? = null
+    @Volatile private var neuralVoiceInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -249,6 +253,15 @@ class MainActivity : Activity() {
             text = "Recap အသံဖိုင် WAV သိမ်းရန်"
             setOnClickListener { saveRecapAudio() }
         }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "မြန်မာ Neural AI Voice — ဖန်တီးပြီး နားထောင်ရန်"
+            setOnClickListener { generateMyanmarNeuralVoice() }
+        }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "မြန်မာ Neural Voice WAV သိမ်းရန်"
+            setOnClickListener { saveMyanmarNeuralWav() }
+        }, matchWidth())
+        root.addView(label("MMS မြန်မာအသံ Model — ပထမဆုံးအကြိမ် Download လုပ်ပြီးနောက် Offline အသုံးပြုနိုင်သည်။ Model License: CC BY-NC 4.0 (စီးပွားဖြစ်အသုံးပြုခွင့်မပါ)။", 11f, 0xFFFFD28A.toInt()))
 
         status = label("အင်တာနက်မလို၊ API key မလို၊ daily quota မရှိသော local text recap", 13f, 0xFFB8C0D9.toInt())
         root.addView(status)
@@ -386,6 +399,84 @@ class MainActivity : Activity() {
     }
 
 
+
+    private fun generateMyanmarNeuralVoice() {
+        if (latestRecap.isBlank()) {
+            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
+            return
+        }
+        if (neuralVoiceInProgress) {
+            status.text = "မြန်မာ Neural Voice ဖန်တီးနေဆဲပါ။"
+            return
+        }
+        neuralVoiceInProgress = true
+        val textToSpeak = latestRecap
+        val output = File(cacheDir, "hyper_myanmar_neural_" + System.currentTimeMillis() + ".wav")
+        status.text = "မြန်မာ Neural Voice Model ကို ပြင်ဆင်နေပါသည်..."
+        Thread {
+            try {
+                MyanmarNeuralVoice.synthesize(this, textToSpeak, output) { message ->
+                    runOnUiThread { status.text = message }
+                }
+                runOnUiThread {
+                    latestMyanmarNeuralWav?.delete()
+                    latestMyanmarNeuralWav = output
+                    playMyanmarNeuralVoice(output)
+                }
+            } catch (e: Exception) {
+                output.delete()
+                runOnUiThread {
+                    status.text = "မြန်မာ Neural Voice မအောင်မြင်ပါ: " + (e.localizedMessage ?: "Model/Audio error")
+                }
+            } finally {
+                neuralVoiceInProgress = false
+            }
+        }.start()
+    }
+
+    private fun playMyanmarNeuralVoice(file: File) {
+        try {
+            neuralPlayer?.release()
+            val player = MediaPlayer()
+            neuralPlayer = player
+            player.setDataSource(file.absolutePath)
+            player.setOnPreparedListener {
+                it.start()
+                status.text = "မြန်မာ Neural AI Voice ဖြင့် Recap ဖတ်နေပါသည်။"
+            }
+            player.setOnCompletionListener {
+                it.release()
+                if (neuralPlayer === it) neuralPlayer = null
+                status.text = "မြန်မာ Neural Voice ဖတ်ပြီးပါပြီ။ WAV သိမ်းနိုင်ပါသည်။"
+            }
+            player.setOnErrorListener { mp, _, _ ->
+                mp.release()
+                if (neuralPlayer === mp) neuralPlayer = null
+                status.text = "Neural Voice အသံဖွင့်မရပါ။ WAV သိမ်းပြီး အခြား Player ဖြင့် စမ်းပါ။"
+                true
+            }
+            player.prepareAsync()
+        } catch (e: Exception) {
+            neuralPlayer?.release()
+            neuralPlayer = null
+            status.text = "Neural Voice ဖွင့်မရပါ: " + (e.localizedMessage ?: "Player error")
+        }
+    }
+
+    private fun saveMyanmarNeuralWav() {
+        val source = latestMyanmarNeuralWav
+        if (source == null || !source.isFile) {
+            status.text = "အရင်ဆုံး မြန်မာ Neural Voice ဖန်တီးပါ။"
+            return
+        }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "audio/wav"
+            putExtra(Intent.EXTRA_TITLE, "HyperRecap-Myanmar-Neural-Voice.wav")
+        }
+        startActivityForResult(intent, REQUEST_SAVE_MYANMAR_NEURAL_WAV)
+    }
+
     private fun saveRecapAudio() {
         if (latestRecap.isBlank()) {
             status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
@@ -460,6 +551,8 @@ class MainActivity : Activity() {
         tts?.stop()
         tts?.shutdown()
         tts = null
+        neuralPlayer?.release()
+        neuralPlayer = null
         super.onDestroy()
     }
 
@@ -787,6 +880,20 @@ class MainActivity : Activity() {
             synthesizeRecapAudio(uri)
             return
         }
+        if (requestCode == REQUEST_SAVE_MYANMAR_NEURAL_WAV) {
+            val source = latestMyanmarNeuralWav ?: return
+            Thread {
+                try {
+                    contentResolver.openOutputStream(uri)?.use { target ->
+                        source.inputStream().use { input -> input.copyTo(target) }
+                    } ?: throw IllegalStateException("WAV သိမ်းမည့်နေရာ ဖွင့်မရပါ။")
+                    runOnUiThread { status.text = "မြန်မာ Neural Voice WAV သိမ်းပြီးပါပြီ။" }
+                } catch (e: Exception) {
+                    runOnUiThread { status.text = "Neural WAV သိမ်းမရပါ: " + (e.localizedMessage ?: "Error") }
+                }
+            }.start()
+            return
+        }
         if (requestCode == REQUEST_SAVE_OVERLAY_MP4) {
             startSubtitleMp4Export(uri)
             return
@@ -896,5 +1003,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_TRANSCRIPT = 1007; private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006; private const val REQUEST_SAVE_OVERLAY_MP4 = 1008 }
+    companion object { private const val REQUEST_TRANSCRIPT = 1007; private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006; private const val REQUEST_SAVE_OVERLAY_MP4 = 1008; private const val REQUEST_SAVE_MYANMAR_NEURAL_WAV = 1009 }
 }
