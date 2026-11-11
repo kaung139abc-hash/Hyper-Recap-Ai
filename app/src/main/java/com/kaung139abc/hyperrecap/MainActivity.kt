@@ -10,7 +10,6 @@ import android.speech.tts.Voice
 import android.speech.tts.UtteranceProgressListener
 import android.os.Bundle
 import android.net.Uri
-import android.os.Bundle
 import android.os.Environment
 import android.view.Gravity
 import android.view.View
