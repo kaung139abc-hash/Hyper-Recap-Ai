@@ -1439,6 +1439,8 @@ class MainActivity : Activity() {
         }
         if (requestCode != REQUEST_VIDEO) return
         selectedVideoUri = uri
+        latestVisualContext = ""
+        latestRecap = ""
         try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         catch (_: SecurityException) { }
         val name = queryName(uri) ?: "ရွေးထားသော Video"
