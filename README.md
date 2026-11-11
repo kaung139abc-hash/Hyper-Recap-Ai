@@ -88,3 +88,6 @@ The Android Actions workflow supports a private release keystore. When all four 
 - **Secret rotation:** rotate the Cloudflare API token and Admin Secret that were exposed in the previous setup conversation before issuing customer licenses. Never paste secrets into chat or commit them.
 
 Do not advertise the app as a complete generative/translation/fully offline commercial product until those features are implemented with compatible models and commercial licenses, and the signed APK has passed real-device testing.
+
+
+<!-- Signing secrets configured: trigger Android APK workflow to verify signed release output. -->
