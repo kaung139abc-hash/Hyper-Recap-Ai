@@ -5,6 +5,8 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.database.Cursor
 import android.media.MediaMetadataRetriever
+import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -14,6 +16,9 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
+import android.widget.ArrayAdapter
+import android.widget.SeekBar
 import android.widget.TextView
 import java.util.Locale
 
@@ -24,10 +29,17 @@ class MainActivity : Activity() {
     private lateinit var transcriptInput: EditText
     private lateinit var recapOutput: TextView
     private var latestRecap: String = ""
+    private var tts: TextToSpeech? = null
+    private var availableVoices: List<Voice> = emptyList()
+    private lateinit var voicePicker: Spinner
+    private lateinit var speechRate: SeekBar
+    private lateinit var speechPitch: SeekBar
+    private lateinit var voiceInfo: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildScreen()
+        initializeSpeech()
         handleSharedLink(intent)
     }
 
@@ -114,6 +126,28 @@ class MainActivity : Activity() {
             setOnClickListener { saveRecap() }
         }, matchWidth())
 
+        root.addView(space(18))
+        root.addView(label("VOICE STUDIO", 18f, 0xFF8EA5FF.toInt()))
+        root.addView(label("ဖုန်းထဲတွင် ရရှိနိုင်သော အသံများကို ရွေးချယ်ပါ", 13f, 0xFFB8C0D9.toInt()))
+        voicePicker = Spinner(this)
+        root.addView(voicePicker, matchWidth())
+        voiceInfo = label("အသံစာရင်း ဖတ်နေပါသည်...", 12f, 0xFFB8C0D9.toInt())
+        root.addView(voiceInfo, matchWidth())
+        root.addView(label("အသံမြန်နှုန်း", 13f, 0xFFFFFFFF.toInt()))
+        speechRate = SeekBar(this).apply { max = 150; progress = 50 }
+        root.addView(speechRate, matchWidth())
+        root.addView(label("အသံအနိမ့်အမြင့်", 13f, 0xFFFFFFFF.toInt()))
+        speechPitch = SeekBar(this).apply { max = 150; progress = 50 }
+        root.addView(speechPitch, matchWidth())
+        root.addView(Button(this).apply {
+            text = "ရွေးထားသောအသံဖြင့် Recap ဖတ်ရန်"
+            setOnClickListener { speakRecap() }
+        }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "အသံစမ်းနားထောင်ရန်"
+            setOnClickListener { previewVoice() }
+        }, matchWidth())
+
         status = label("အင်တာနက်မလို၊ API key မလို၊ daily quota မရှိသော local text recap", 13f, 0xFFB8C0D9.toInt())
         root.addView(status)
 
@@ -140,6 +174,85 @@ class MainActivity : Activity() {
     private fun matchWidth() = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
     )
+
+
+    private fun initializeSpeech() {
+        tts = TextToSpeech(this) { result ->
+            if (result != TextToSpeech.SUCCESS) {
+                voiceInfo.text = "ဖုန်း၏ Text-to-Speech Engine ကို စတင်မရပါ။ Android Settings မှ TTS engine/voice data ကို စစ်ဆေးပါ။"
+                return@TextToSpeech
+            }
+            try {
+                val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
+                availableVoices = (tts?.voices ?: emptySet())
+                    .filter { voice ->
+                        val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
+                        excluded.none { identity.contains(it) }
+                    }
+                    .sortedWith(compareBy<Voice>({ it.locale.displayName }, { -it.quality }, { it.name }))
+                val labels = availableVoices.map { voice ->
+                    val mode = if (voice.isNetworkConnectionRequired) "Online" else "Offline"
+                    "${voice.locale.displayName} — ${voice.name} — $mode — Quality ${voice.quality}"
+                }
+                if (labels.isEmpty()) {
+                    voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, listOf("အသုံးပြုနိုင်သော အသံမရှိပါ"))
+                    voiceInfo.text = "ဒီဖုန်းမှာ ရွေးချယ်နိုင်တဲ့ TTS အသံ မတွေ့ပါ။ Settings > Text-to-speech မှာ Voice data ထည့်သွင်းပါ။"
+                } else {
+                    voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+                    voicePicker.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                        override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                        override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                            try {
+                                tts?.voice = availableVoices[position]
+                                val v = availableVoices[position]
+                                voiceInfo.text = "ရွေးထားသည်: ${v.locale.displayName} | ${if (v.isNetworkConnectionRequired) "Online voice (Internet လိုနိုင်)" else "Offline voice"} | Quality ${v.quality}"
+                            } catch (e: Exception) {
+                                voiceInfo.text = "ဒီအသံကို ရွေးမရပါ: ${e.localizedMessage ?: "Error"}"
+                            }
+                        }
+                    }
+                    voiceInfo.text = "အသံ ${labels.size} မျိုး တွေ့ရှိသည်။ Engine ပေါ်မူတည်ပြီး အရည်အသွေးကွာနိုင်သည်။"
+                }
+            } catch (e: Exception) {
+                voiceInfo.text = "အသံစာရင်း ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}"
+            }
+        }
+    }
+
+    private fun speakRecap() {
+        if (latestRecap.isBlank()) {
+            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
+            return
+        }
+        val engine = tts
+        if (engine == null || availableVoices.isEmpty()) {
+            status.text = "အသံ Engine သို့မဟုတ် Voice data မရရှိသေးပါ။"
+            return
+        }
+        engine.setSpeechRate(0.5f + speechRate.progress / 100f)
+        engine.setPitch(0.5f + speechPitch.progress / 100f)
+        engine.speak(latestRecap, TextToSpeech.QUEUE_FLUSH, null, "hyper_recap_speech")
+        status.text = "ရွေးထားသောအသံဖြင့် Recap ဖတ်နေပါသည်။"
+    }
+
+    private fun previewVoice() {
+        val engine = tts
+        if (engine == null || availableVoices.isEmpty()) {
+            status.text = "အသုံးပြုနိုင်သော Voice မရှိသေးပါ။"
+            return
+        }
+        engine.setSpeechRate(0.5f + speechRate.progress / 100f)
+        engine.setPitch(0.5f + speechPitch.progress / 100f)
+        engine.speak("မင်္ဂလာပါ။ Hyper Recap AI အသံစမ်းသပ်မှု ဖြစ်ပါတယ်။ ရွေးချယ်ထားတဲ့ အသံနဲ့ စာသားကို ဖတ်ပြပါမယ်။", TextToSpeech.QUEUE_FLUSH, null, "hyper_recap_preview")
+        status.text = "အသံစမ်းသပ်နေပါသည်။"
+    }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
+        super.onDestroy()
+    }
 
     private fun generateRecap() {
         val source = transcriptInput.text.toString().trim()
