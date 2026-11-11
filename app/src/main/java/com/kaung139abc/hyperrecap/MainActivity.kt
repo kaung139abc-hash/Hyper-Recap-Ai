@@ -64,6 +64,8 @@ class MainActivity : Activity() {
     private var pendingDecodedWav: File? = null
     @Volatile private var transcriptionInProgress = false
     private var pendingSubtitleDestination: Uri? = null
+    private var pendingNarratedMp4Destination: Uri? = null
+    private var pendingNarrationWav: File? = null
     private var activeTransformer: Transformer? = null
     private var latestMyanmarNeuralWav: File? = null
     private var neuralPlayer: MediaPlayer? = null
@@ -535,6 +537,15 @@ class MainActivity : Activity() {
                     pendingAudioUri = null
                 }
                 override fun onDone(utteranceId: String?) {
+                    if (utteranceId == "hyper_auto_narration") {
+                        val wav = pendingNarrationWav
+                        val destination = pendingNarratedMp4Destination
+                        if (wav == null || destination == null) return
+                        pendingNarrationWav = null
+                        pendingNarratedMp4Destination = null
+                        runOnUiThread { exportNarratedMp4(destination, wav) }
+                        return
+                    }
                     if (utteranceId != "hyper_recap_audio_export") return
                     val sourceFile = pendingAudioFile
                     val destination = pendingAudioUri
@@ -818,7 +829,8 @@ class MainActivity : Activity() {
                     latestRecap = generated
                     latestSrt = SubtitleDraft.fromNarration(generated)
                     recapOutput.text = generated
-                    status.text = "✓ AI မြန်မာ Recap ပြီးပါပြီ။ ဇာတ်ကြောင်းကို narration အဖြစ် ပြင်ဆင်ပြီးပါပြီ။"
+                    status.text = "✓ AI မြန်မာ Recap ပြီးပါပြီ။ MP4 narration အတွက် သိမ်းမည့်နေရာ ရွေးပါ။"
+                    requestAutoNarratedMp4Destination()
                 }
             } catch (e: Exception) {
                 val offline = OfflineRecap.summarize(source)
@@ -827,11 +839,110 @@ class MainActivity : Activity() {
                     latestSrt = SubtitleDraft.fromNarration(offline)
                     recapOutput.text = offline
                     status.text = "Cloud AI မရနိုင်သဖြင့် Offline အကျဉ်းချုပ်ကို အသုံးပြုထားသည်။ (" + (e.localizedMessage ?: "Internet/License/Quota စစ်ဆေးပါ") + ")"
+                    requestAutoNarratedMp4Destination()
                 }
             }
         }.start()
     }
 
+
+    private fun requestAutoNarratedMp4Destination() {
+        if (selectedVideoUri == null || latestRecap.isBlank()) return
+        if (tts == null || availableVoices.isEmpty()) {
+            status.text = "မြန်မာ TTS အသံမရရှိပါ။ ဖုန်း Settings > Text-to-speech တွင် Burmese voice ထည့်သွင်းပါ။"
+            return
+        }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "video/mp4"
+            putExtra(Intent.EXTRA_TITLE, "HyperRecap-Auto-Narrated.mp4")
+        }
+        startActivityForResult(intent, REQUEST_AUTO_NARRATED_MP4)
+    }
+
+    private fun beginAutomaticNarrationExport(destination: Uri) {
+        val engine = tts ?: run { status.text = "TTS Engine မရရှိပါ။"; return }
+        if (latestRecap.isBlank() || selectedVideoUri == null) {
+            status.text = "Recap သို့မဟုတ် Video မရှိပါ။"
+            return
+        }
+        val wav = File(cacheDir, "hyper_auto_voice_${System.currentTimeMillis()}.wav")
+        pendingNarratedMp4Destination = destination
+        pendingNarrationWav = wav
+        try {
+            engine.setSpeechRate(0.95f)
+            engine.setPitch(1.0f)
+            val result = engine.synthesizeToFile(latestRecap, Bundle(), wav, "hyper_auto_narration")
+            if (result != TextToSpeech.SUCCESS) {
+                wav.delete()
+                pendingNarrationWav = null
+                pendingNarratedMp4Destination = null
+                status.text = "ဤဖုန်း TTS Engine က WAV ဖိုင်ထုတ်ပေးမှုကို မပံ့ပိုးပါ။"
+            } else status.text = "မြန်မာ Recap အသံဖန်တီးနေပါသည်..."
+        } catch (e: Exception) {
+            wav.delete()
+            pendingNarrationWav = null
+            pendingNarratedMp4Destination = null
+            status.text = "အသံဖန်တီးမရပါ: ${e.localizedMessage ?: "TTS error"}"
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun exportNarratedMp4(destination: Uri, narrationWav: File) {
+        val source = selectedVideoUri
+        if (source == null || !narrationWav.isFile || narrationWav.length() < 44L) {
+            narrationWav.delete()
+            status.text = "Video သို့မဟုတ် Narration WAV မပြည့်စုံပါ။"
+            return
+        }
+        if (activeTransformer != null) {
+            narrationWav.delete()
+            status.text = "MP4 Export လုပ်ဆောင်နေဆဲပါ။"
+            return
+        }
+        val output = File(cacheDir, "hyper_narrated_${System.currentTimeMillis()}.mp4")
+        try {
+            val videoItem = EditedMediaItem.Builder(MediaItem.fromUri(source)).setRemoveAudio(true).build()
+            val audioItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(narrationWav))).setRemoveVideo(true).build()
+            val videoSequence = EditedMediaItemSequence.Builder(listOf(videoItem)).build()
+            val audioSequence = EditedMediaItemSequence.Builder(listOf(audioItem)).build()
+            val composition = Composition.Builder(listOf(videoSequence, audioSequence)).build()
+            output.createNewFile()
+            val transformer = Transformer.Builder(this)
+                .addListener(object : Transformer.Listener {
+                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        Thread {
+                            try {
+                                contentResolver.openOutputStream(destination)?.use { target ->
+                                    output.inputStream().use { input -> input.copyTo(target) }
+                                } ?: throw IllegalStateException("MP4 သိမ်းမည့်နေရာ ဖွင့်မရပါ။")
+                                runOnUiThread { status.text = "✓ မြန်မာ Recap အသံနှင့် မူရင်း Video ပေါင်းထားသော MP4 သိမ်းပြီးပါပြီ။" }
+                            } catch (e: Exception) {
+                                runOnUiThread { status.text = "MP4 သိမ်းမရပါ: ${e.localizedMessage ?: "Storage error"}" }
+                            } finally {
+                                output.delete()
+                                narrationWav.delete()
+                                activeTransformer = null
+                            }
+                        }.start()
+                    }
+                    override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                        output.delete()
+                        narrationWav.delete()
+                        activeTransformer = null
+                        runOnUiThread { status.text = "Narrated MP4 Export မအောင်မြင်ပါ: ${exportException.localizedMessage ?: "Encoding error"}" }
+                    }
+                }).build()
+            activeTransformer = transformer
+            status.text = "မူရင်း Video နှင့် မြန်မာ Recap အသံကို MP4 တစ်ခုတည်းအဖြစ် ပေါင်းနေပါသည်..."
+            transformer.start(composition, output.absolutePath)
+        } catch (e: Exception) {
+            output.delete()
+            narrationWav.delete()
+            activeTransformer = null
+            status.text = "MP4 Export စတင်မရပါ: ${e.localizedMessage ?: "Export error"}"
+        }
+    }
 
     private fun requestSubtitleMp4Destination() {
         if (selectedVideoUri == null) {
@@ -1136,6 +1247,10 @@ class MainActivity : Activity() {
             synthesizeRecapAudio(uri)
             return
         }
+        if (requestCode == REQUEST_AUTO_NARRATED_MP4) {
+            beginAutomaticNarrationExport(uri)
+            return
+        }
         if (requestCode == REQUEST_SAVE_MYANMAR_NEURAL_WAV) {
             val source = latestMyanmarNeuralWav ?: return
             Thread {
@@ -1259,5 +1374,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_TRANSCRIPT = 1007; private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006; private const val REQUEST_SAVE_OVERLAY_MP4 = 1008; private const val REQUEST_SAVE_MYANMAR_NEURAL_WAV = 1009 }
+    companion object { private const val REQUEST_TRANSCRIPT = 1007; private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006; private const val REQUEST_SAVE_OVERLAY_MP4 = 1008; private const val REQUEST_AUTO_NARRATED_MP4 = 1010; private const val REQUEST_SAVE_MYANMAR_NEURAL_WAV = 1009 }
 }
