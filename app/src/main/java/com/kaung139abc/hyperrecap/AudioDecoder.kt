@@ -110,7 +110,7 @@ object AudioDecoder {
                                 out.write(pcm)
                                 dataBytes += pcm.size
                             } else {
-                                wav.seek(44L + dataBytes)
+                                out.seek(44L + dataBytes)
                                 out.write(chunk)
                                 dataBytes += chunk.size
                             }
