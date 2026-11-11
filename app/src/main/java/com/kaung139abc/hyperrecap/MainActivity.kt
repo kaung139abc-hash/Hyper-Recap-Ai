@@ -8,6 +8,7 @@ import android.media.MediaMetadataRetriever
 import android.media.MediaExtractor
 import android.media.MediaMuxer
 import android.media.MediaFormat
+import android.media.MediaCodec
 import java.nio.ByteBuffer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
