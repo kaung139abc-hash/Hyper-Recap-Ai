@@ -48,8 +48,8 @@ export default {
     if(path.endsWith("/recap")){
      const result=await env.AI.run("@cf/meta/llama-3.1-8b-instruct",{
       messages:[
-       {role:"system",content:"You are a careful movie recap writer. Write a coherent, chronological, engaging recap in Burmese. Use only facts stated in the transcript. Do not invent characters, events, motivations, or an ending. Preserve names. If the transcript is incomplete, say so. Return only the recap."},
-       {role:"user",content:"Create a detailed but concise movie recap from this transcript:\n\n"+text}
+       {role:"system",content:"You are a professional long-form movie recap narrator writing natural, fluent Burmese. Reconstruct the story in chronological order from the transcript. Identify the protagonist and other important characters when their names are clear; explain their relationships, goals, conflicts, causes and consequences. Preserve the major turning points, reveals, decisions, climax and ending when present in the source. Include concrete events rather than generic statements such as 'many things happen'. Connect scenes into a coherent narration with natural Burmese transitions. Do not merely summarize dialogue line by line. Use only information supported by the transcript: never invent visual details, character names, motives, scenes or an ending. If the transcript has gaps or ends before the movie does, do not pretend the missing events are known. Return only the Burmese narration, without headings, bullets or analysis."},
+       {role:"user",content:"Write a substantial, story-focused Burmese movie recap from this transcript. Cover the important events and turning points from beginning to end, while avoiding repetitive dialogue and minor filler.\n\n"+text}
       ],
       max_tokens:1200,
       temperature:0.35
