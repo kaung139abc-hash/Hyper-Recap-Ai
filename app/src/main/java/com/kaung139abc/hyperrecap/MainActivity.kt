@@ -29,6 +29,16 @@ import android.widget.SeekBar
 import android.widget.TextView
 import java.util.Locale
 import java.io.File
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
+import androidx.media3.transformer.Effects
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
 
 class MainActivity : Activity() {
     private lateinit var selectedInfo: TextView
@@ -52,6 +62,8 @@ class MainActivity : Activity() {
     private var pendingExtractedAudio: File? = null
     private var pendingDecodedWav: File? = null
     @Volatile private var transcriptionInProgress = false
+    private var pendingSubtitleDestination: Uri? = null
+    private var activeTransformer: Transformer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -189,6 +201,10 @@ class MainActivity : Activity() {
         root.addView(Button(this).apply {
             text = "Recap Subtitle SRT ထုတ်ရန်"
             setOnClickListener { saveSubtitles() }
+        }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "မြန်မာစာတန်းထိုး MP4 ထုတ်ရန် (Video ထဲ တစ်ခါတည်းထည့်)"
+            setOnClickListener { requestSubtitleMp4Destination() }
         }, matchWidth())
 
         root.addView(space(18))
