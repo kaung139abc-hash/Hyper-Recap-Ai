@@ -318,7 +318,65 @@ class MainActivity : Activity() {
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
+        applyPremiumTheme(root)
         setContentView(scroll)
+    }
+
+    private fun applyPremiumTheme(root: LinearLayout) {
+        val accent = 0xFF8B7CFF.toInt()
+        val accent2 = 0xFF20C9B5.toInt()
+        fun walk(view: View) {
+            when (view) {
+                is Button -> {
+                    val title = view.text?.toString().orEmpty()
+                    val primary = title.contains("Activate") || title.contains("Generate") ||
+                        title.contains("ရွေးရန်") || title.contains("Download") ||
+                        title.contains("Translation") || title.contains("Recap ဖတ်ရန်")
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                        cornerRadius = 18f * resources.displayMetrics.density
+                        setColor(if (primary) accent else 0xFF252D42.toInt())
+                        setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1),
+                            if (primary) accent2 else 0xFF39445F.toInt())
+                    }
+                    view.background = bg
+                    view.backgroundTintList = null
+                    view.setTextColor(0xFFFFFFFF.toInt())
+                    view.textSize = 14f
+                    view.isAllCaps = false
+                    view.minHeight = (52 * resources.displayMetrics.density).toInt()
+                    view.setPadding(16, 10, 16, 10)
+                    val lp = view.layoutParams
+                    if (lp is LinearLayout.LayoutParams) {
+                        lp.bottomMargin = (7 * resources.displayMetrics.density).toInt()
+                        view.layoutParams = lp
+                    }
+                }
+                is EditText -> {
+                    val bg = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                        cornerRadius = 16f * resources.displayMetrics.density
+                        setColor(0xFF1A2132.toInt())
+                        setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1), 0xFF465273.toInt())
+                    }
+                    view.background = bg
+                    view.setPadding(16, 14, 16, 14)
+                }
+                is TextView -> {
+                    if (view.textSize >= 18f) {
+                        view.setTypeface(view.typeface, android.graphics.Typeface.BOLD)
+                        view.setTextColor(if (view.text.toString().contains("HYPER")) 0xFFB8B0FF.toInt() else 0xFF8FE9DC.toInt())
+                        view.setPadding(0, 10, 0, 8)
+                    }
+                }
+            }
+            if (view is android.view.ViewGroup) {
+                for (i in 0 until view.childCount) walk(view.getChildAt(i))
+            }
+        }
+        root.setPadding(20, 28, 20, 28)
+        root.setBackgroundColor(0xFF0B1020.toInt())
+        walk(root)
     }
 
     private fun space(height: Int) = View(this).apply {
