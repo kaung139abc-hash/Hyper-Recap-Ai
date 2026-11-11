@@ -255,7 +255,7 @@ class MainActivity : Activity() {
         root.addView(status)
 
         val note = label(
-            "မှတ်ချက် — လက်ရှိ Link Download သည် .mp4/.mkv/.webm/.mov/.m4v ကဲ့သို့ တိုက်ရိုက် Video ဖိုင် URL များအတွက်သာ ဖြစ်သည်။ YouTube/Facebook/TikTok စာမျက်နှာ Link များကို platform က ခွင့်ပြုသည့်နည်းလမ်းမရှိဘဲ တိုက်ရိုက်ဒေါင်းလုဒ်မလုပ်နိုင်သေးပါ။ Video အသံကို အလိုအလျောက် Transcript ပြောင်းသည့် Engine ကို နောက်တစ်ဆင့်တွင် ထည့်သွင်းရဦးမည်။",
+            "မှတ်ချက် — Whisper multilingual Base int8 Model ကို ပထမဆုံးအသုံးပြုချိန်တွင် Internet ဖြင့် 208 MB ခန့် Download လုပ်ရမည်။ ထို့နောက် Speech-to-Text ကို Offline လုပ်နိုင်သည်။ YouTube/Facebook/TikTok/Instagram Link များကို Official App/Browser ဖွင့်ပေးခြင်းသာ ရရှိပြီး Platform က ခွင့်ပြုသော Video ဖိုင်ကို ဖုန်းထဲသိမ်းပြီးမှ ရွေးပါ။ MP4 Subtitle Export သည် Video ကို ပြန် Encode လုပ်သောကြောင့် အချိန်နှင့် Battery ပိုသုံးနိုင်သည်။",
             13f, 0xFFFFD28A.toInt()
         )
         note.setPadding(0, 28, 0, 0)
