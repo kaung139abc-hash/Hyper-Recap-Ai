@@ -32,6 +32,7 @@ object SrtTranscript {
 
     fun summarize(cues: List<Cue>, maxCues: Int = 8): List<Cue> {
         if (cues.isEmpty()) return emptyList()
+        val limit = maxCues.coerceIn(1, cues.size)
         val tokenizer = Regex("[\\p{L}\\p{N}]{2,}")
         val stop = setOf("the", "and", "that", "this", "with", "from", "then", "when",
             "ဖြစ်", "သည်", "တွေ", "တော့", "များ", "ကို", "မှာ", "နှင့်", "ပြီး")
@@ -41,15 +42,38 @@ object SrtTranscript {
                 if (it.value !in stop) frequency[it.value] = (frequency[it.value] ?: 0) + 1
             }
         }
-        return cues.mapIndexed { index, cue ->
+        val start = cues.minOf { it.startMs }
+        val end = cues.maxOf { it.endMs }.coerceAtLeast(start + 1L)
+        val span = (end - start).toDouble()
+        val scored = cues.mapIndexed { index, cue ->
             val words = tokenizer.findAll(cue.text.lowercase(Locale.ROOT)).map { it.value }.toList()
             val score = words.sumOf { (frequency[it] ?: 0).toDouble() } /
                 kotlin.math.sqrt(words.size.coerceAtLeast(1).toDouble())
-            Triple(index, cue, score)
-        }.sortedByDescending { it.third }
-            .take(maxCues.coerceIn(1, cues.size))
-            .sortedBy { it.second.startMs }
-            .map { it.second }
+            val midpoint = (cue.startMs + cue.endMs) / 2.0
+            val act = (((midpoint - start) / span) * 4.0).toInt().coerceIn(0, 3)
+            Triple(index, cue, score to act)
+        }
+        // Keep the recap's opening, middle turns and ending instead of selecting
+        // every high-frequency line from one repetitive scene.
+        val selected = linkedSetOf<Int>()
+        val base = limit / 4
+        val extra = limit % 4
+        for (act in 0..3) {
+            val quota = base + if (act < extra) 1 else 0
+            scored.asSequence()
+                .filter { it.third.second == act }
+                .sortedByDescending { it.third.first }
+                .take(quota)
+                .forEach { selected += it.first }
+        }
+        if (selected.size < limit) {
+            scored.asSequence()
+                .filter { it.first !in selected }
+                .sortedByDescending { it.third.first }
+                .take(limit - selected.size)
+                .forEach { selected += it.first }
+        }
+        return selected.sorted().map { cues[it] }
     }
 
     fun toSrt(cues: List<Cue>): String = cues.mapIndexed { index, cue ->
