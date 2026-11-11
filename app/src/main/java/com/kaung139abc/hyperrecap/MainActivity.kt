@@ -323,60 +323,110 @@ class MainActivity : Activity() {
     }
 
     private fun applyPremiumTheme(root: LinearLayout) {
-        val accent = 0xFF8B7CFF.toInt()
-        val accent2 = 0xFF20C9B5.toInt()
-        fun walk(view: View) {
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+        val violet = 0xFF8B7CFF.toInt()
+        val mint = 0xFF20C9B5.toInt()
+        val panel = 0xFF151D30.toInt()
+        val muted = 0xFFAAB6D0.toInt()
+
+        fun rounded(fill: Int, stroke: Int, radius: Float = 18f) =
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = dp(radius.toInt()).toFloat()
+                setColor(fill)
+                setStroke(dp(1).coerceAtLeast(1), stroke)
+            }
+
+        root.setPadding(dp(18), dp(26), dp(18), dp(28))
+        root.setBackgroundColor(0xFF090E1B.toInt())
+        root.clipToPadding = false
+
+        // Give the existing title area a stronger premium hierarchy.
+        val title = root.getChildAt(0) as? TextView
+        title?.apply {
+            textSize = 29f
+            setTypeface(android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL))
+            setTextColor(0xFFC5BCFF.toInt())
+            letterSpacing = 0.08f
+            setPadding(0, dp(12), 0, dp(4))
+        }
+        (root.getChildAt(1) as? TextView)?.apply {
+            textSize = 13f
+            setTextColor(muted)
+            letterSpacing = 0.04f
+            setPadding(0, 0, 0, dp(18))
+        }
+
+        fun style(view: View) {
             when (view) {
                 is Button -> {
-                    val title = view.text?.toString().orEmpty()
-                    val primary = title.contains("Activate") || title.contains("Generate") ||
-                        title.contains("ရွေးရန်") || title.contains("Download") ||
-                        title.contains("Translation") || title.contains("Recap ဖတ်ရန်")
-                    val bg = android.graphics.drawable.GradientDrawable().apply {
-                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                        cornerRadius = 18f * resources.displayMetrics.density
-                        setColor(if (primary) accent else 0xFF252D42.toInt())
-                        setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1),
-                            if (primary) accent2 else 0xFF39445F.toInt())
-                    }
-                    view.background = bg
+                    val caption = view.text?.toString().orEmpty()
+                    val primary = caption.contains("Activate") ||
+                        caption.contains("Generate") ||
+                        caption.contains("ရွေးရန်") ||
+                        caption.contains("Download") ||
+                        caption.contains("Translation") ||
+                        caption.contains("Recap ဖတ်ရန်") ||
+                        caption.contains("Generate Offline")
+                    view.background = rounded(
+                        if (primary) 0xFF5144B8.toInt() else 0xFF1A263D.toInt(),
+                        if (primary) mint else 0xFF354565.toInt(),
+                        15f
+                    )
                     view.backgroundTintList = null
-                    view.setTextColor(0xFFFFFFFF.toInt())
-                    view.textSize = 14f
+                    view.setTextColor(0xFFF7F8FF.toInt())
+                    view.textSize = 13.5f
+                    view.typeface = android.graphics.Typeface.create(
+                        "sans-serif-medium", android.graphics.Typeface.NORMAL
+                    )
                     view.isAllCaps = false
-                    view.minHeight = (52 * resources.displayMetrics.density).toInt()
-                    view.setPadding(16, 10, 16, 10)
-                    val lp = view.layoutParams
-                    if (lp is LinearLayout.LayoutParams) {
-                        lp.bottomMargin = (7 * resources.displayMetrics.density).toInt()
-                        view.layoutParams = lp
+                    view.minHeight = dp(50)
+                    view.setPadding(dp(15), dp(10), dp(15), dp(10))
+                    view.elevation = dp(2).toFloat()
+                    (view.layoutParams as? LinearLayout.LayoutParams)?.let {
+                        it.bottomMargin = dp(8)
+                        view.layoutParams = it
                     }
                 }
                 is EditText -> {
-                    val bg = android.graphics.drawable.GradientDrawable().apply {
-                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                        cornerRadius = 16f * resources.displayMetrics.density
-                        setColor(0xFF1A2132.toInt())
-                        setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1), 0xFF465273.toInt())
-                    }
-                    view.background = bg
-                    view.setPadding(16, 14, 16, 14)
+                    view.background = rounded(0xFF151E31.toInt(), 0xFF46577A.toInt(), 14f)
+                    view.setTextColor(0xFFF5F7FF.toInt())
+                    view.setHintTextColor(0xFF7F8BA7.toInt())
+                    view.textSize = 14f
+                    view.setPadding(dp(15), dp(13), dp(15), dp(13))
+                    view.backgroundTintList = null
                 }
                 is TextView -> {
                     if (view.textSize >= 18f) {
-                        view.setTypeface(view.typeface, android.graphics.Typeface.BOLD)
-                        view.setTextColor(if (view.text.toString().contains("HYPER")) 0xFFB8B0FF.toInt() else 0xFF8FE9DC.toInt())
-                        view.setPadding(0, 10, 0, 8)
+                        view.setTypeface(android.graphics.Typeface.create(
+                            "sans-serif-bold", android.graphics.Typeface.NORMAL
+                        ))
+                        view.setTextColor(if (view.text.toString().contains("HYPER")) 0xFFC5BCFF.toInt() else 0xFF83E6D8.toInt())
+                        view.setPadding(0, dp(16), 0, dp(9))
+                    } else if (view !== title) {
+                        view.setTextColor(if (view.text.toString().contains("မရွေးရသေး")) 0xFFB9C5DE.toInt() else muted)
                     }
                 }
-            }
-            if (view is android.view.ViewGroup) {
-                for (i in 0 until view.childCount) walk(view.getChildAt(i))
+                is Spinner -> {
+                    view.background = rounded(panel, 0xFF354565.toInt(), 13f)
+                    view.setPadding(dp(8), dp(4), dp(8), dp(4))
+                }
+                is SeekBar -> {
+                    view.progressTintList = android.content.res.ColorStateList.valueOf(mint)
+                    view.thumbTintList = android.content.res.ColorStateList.valueOf(violet)
+                    view.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF35415A.toInt())
+                }
             }
         }
-        root.setPadding(20, 28, 20, 28)
-        root.setBackgroundColor(0xFF0B1020.toInt())
-        walk(root)
+
+        for (i in 0 until root.childCount) {
+            val child = root.getChildAt(i)
+            style(child)
+            if (child is android.view.ViewGroup) {
+                for (j in 0 until child.childCount) style(child.getChildAt(j))
+            }
+        }
     }
 
     private fun space(height: Int) = View(this).apply {
