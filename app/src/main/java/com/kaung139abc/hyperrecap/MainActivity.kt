@@ -137,6 +137,17 @@ class MainActivity : Activity() {
         }
         root.addView(transcriptInput, matchWidth())
         root.addView(Button(this).apply {
+            text = "TXT / SRT Transcript ဖိုင်ထည့်ရန်"
+            setOnClickListener {
+                val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/plain", "application/x-subrip", "text/srt"))
+                }
+                startActivityForResult(pick, REQUEST_TRANSCRIPT)
+            }
+        }, matchWidth())
+        root.addView(Button(this).apply {
             text = "Generate Offline Recap"
             setOnClickListener { generateRecap() }
         }, matchWidth())
@@ -570,6 +581,28 @@ class MainActivity : Activity() {
             synthesizeRecapAudio(uri)
             return
         }
+        if (requestCode == REQUEST_TRANSCRIPT) {
+            Thread {
+                try {
+                    val imported = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                        ?: throw IllegalStateException("ဖိုင်ဖတ်မရပါ။")
+                    val cleaned = imported
+                        .replace(Regex("(?m)^\\s*\\d+\\s*$"), "")
+                        .replace(Regex("(?m)^\\s*\\d{1,2}:\\d{2}:\\d{2}[,.]\\d{3}\\s*-->.*$"), "")
+                        .replace(Regex("(?m)^\\s*\\d{1,2}:\\d{2}[,.]\\d{3}\\s*-->.*$"), "")
+                        .replace(Regex("<[^>]+>"), "")
+                        .lines().filter { it.isNotBlank() }.joinToString("\\n").trim()
+                    if (cleaned.length < 20) throw IllegalStateException("ဖိုင်ထဲတွင် အသုံးပြုနိုင်သော စာသား မလုံလောက်ပါ။")
+                    runOnUiThread {
+                        transcriptInput.setText(cleaned)
+                        status.text = "Transcript ဖိုင်ကို ထည့်ပြီးပါပြီ။ စာသား ${cleaned.length} လုံး ရှိသည်။"
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread { status.text = "Transcript ဖိုင်ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}" }
+                }
+            }.start()
+            return
+        }
         if (requestCode == REQUEST_SAVE_DECODED_WAV) {
             val source = pendingDecodedWav ?: return
             Thread {
@@ -648,5 +681,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006 }
+    companion object { private const val REQUEST_TRANSCRIPT = 1007; private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006 }
 }
