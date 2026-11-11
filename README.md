@@ -34,7 +34,7 @@ YouTube, Facebook, TikTok and Instagram page URLs are not equivalent to direct v
 
 - The first Whisper run downloads the multilingual `base` int8 model (about 208 MB) from the sherpa-onnx model release. After download, transcription runs locally without a network service.
 - The first Burmese neural voice run downloads the MMS `mya` ONNX model and token list from Hugging Face. After download, synthesis runs locally. The upstream Meta MMS model is licensed CC BY-NC 4.0, which excludes commercial use; users must review and comply with the model license before using or distributing generated audio.
-- Whisper processes the extracted PCM audio in 28-second windows with 2 CPU threads to limit peak memory. SRT timing is at window granularity, not word-level alignment.
+- Whisper processes the extracted PCM audio in non-overlapping 28-second windows with 2 CPU threads to limit peak memory and avoid duplicate subtitle text at chunk boundaries. Sentence cue timing is estimated within each window, not word-level alignment.
 - Subtitle MP4 export re-encodes video frames and can be slow, warm the phone, and consume substantial battery on long movies. Keep the phone cool and plugged in for long exports. It preserves the source audio track through Media3's composition pipeline when the source contains a supported audio track.
 
 ## Build and download APK
