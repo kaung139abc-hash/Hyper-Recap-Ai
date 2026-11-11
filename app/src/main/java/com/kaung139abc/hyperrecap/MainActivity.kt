@@ -14,7 +14,6 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import java.util.Locale
 
 class MainActivity : Activity() {
@@ -118,7 +117,7 @@ class MainActivity : Activity() {
         root.addView(status)
 
         val note = label(
-            "မှတ်ချက် — လက်ရှိ Link Download သည် .mp4/.mkv/.webm/.mov/.m4v ကဲ့သို့ တိုက်ရိုက် Video ဖိုင် URL များအတွက်သာ ဖြစ်သည်။ YouTube/Facebook/TikTok စာမျက်နှာ Link များကို platform က ခွင့်ပြုသည့်နည်းလမ်းမရှိဘဲ တိုက်ရိုက်ဒေါင်းလုဒ်မလုပ်နိုင်သေးပါ။ AI Recap Engine ကို နောက်တစ်ဆင့်တွင် ထည့်သွင်းရဦးမည်။",
+            "မှတ်ချက် — လက်ရှိ Link Download သည် .mp4/.mkv/.webm/.mov/.m4v ကဲ့သို့ တိုက်ရိုက် Video ဖိုင် URL များအတွက်သာ ဖြစ်သည်။ YouTube/Facebook/TikTok စာမျက်နှာ Link များကို platform က ခွင့်ပြုသည့်နည်းလမ်းမရှိဘဲ တိုက်ရိုက်ဒေါင်းလုဒ်မလုပ်နိုင်သေးပါ။ Video အသံကို အလိုအလျောက် Transcript ပြောင်းသည့် Engine ကို နောက်တစ်ဆင့်တွင် ထည့်သွင်းရဦးမည်။",
             13f, 0xFFFFD28A.toInt()
         )
         note.setPadding(0, 28, 0, 0)
