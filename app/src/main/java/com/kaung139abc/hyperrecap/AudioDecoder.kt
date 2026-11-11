@@ -47,9 +47,10 @@ object AudioDecoder {
             decoder.configure(inputFormat, null, null, 0)
             decoder.start()
 
-            wav = RandomAccessFile(output, "rw")
-            wav.setLength(0)
-            wav.write(ByteArray(44))
+            val out = RandomAccessFile(output, "rw")
+            wav = out
+            out.setLength(0)
+            out.write(ByteArray(44))
             var sampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             var channels = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var pcmEncoding = 2
@@ -72,7 +73,7 @@ object AudioDecoder {
                             inputDone = true
                         } else {
                             val pts = extractor.sampleTime.coerceAtLeast(0L)
-                            decoder.queueInputBuffer(inputIndex, 0, size, pts, extractor.sampleFlags)
+                            decoder.queueInputBuffer(inputIndex, 0, size, pts, 0)
                             extractor.advance()
                         }
                     }
@@ -105,12 +106,12 @@ object AudioDecoder {
                                     converted.putShort((value * 32767f).toInt().toShort())
                                 }
                                 val pcm = converted.array()
-                                wav.seek(44L + dataBytes)
-                                wav.write(pcm)
+                                out.seek(44L + dataBytes)
+                                out.write(pcm)
                                 dataBytes += pcm.size
                             } else {
                                 wav.seek(44L + dataBytes)
-                                wav.write(chunk)
+                                out.write(chunk)
                                 dataBytes += chunk.size
                             }
                             val durationUs = inputFormat.getLongOrDefault(MediaFormat.KEY_DURATION, 0L)
@@ -130,20 +131,20 @@ object AudioDecoder {
 
             if (dataBytes == 0L) throw IllegalStateException("PCM အသံဒေတာ မရရှိပါ။")
             if (dataBytes > 0xFFFFFFFFL - 36L) throw IllegalStateException("WAV ဖိုင်အရွယ်အစား ကန့်သတ်ချက် ကျော်နေပါသည်။")
-            wav.seek(0)
-            wav.writeBytes("RIFF")
-            wav.writeIntLE((36L + dataBytes).toInt())
-            wav.writeBytes("WAVE")
-            wav.writeBytes("fmt ")
-            wav.writeIntLE(16)
-            wav.writeShortLE(1)
-            wav.writeShortLE(channels)
-            wav.writeIntLE(sampleRate)
-            wav.writeIntLE(sampleRate * channels * 2)
-            wav.writeShortLE(channels * 2)
-            wav.writeShortLE(16)
-            wav.writeBytes("data")
-            wav.writeIntLE(dataBytes.toInt())
+            out.seek(0)
+            out.writeBytes("RIFF")
+            out.writeIntLE((36L + dataBytes).toInt())
+            out.writeBytes("WAVE")
+            out.writeBytes("fmt ")
+            out.writeIntLE(16)
+            out.writeShortLE(1)
+            out.writeShortLE(channels)
+            out.writeIntLE(sampleRate)
+            out.writeIntLE(sampleRate * channels * 2)
+            out.writeShortLE(channels * 2)
+            out.writeShortLE(16)
+            out.writeBytes("data")
+            out.writeIntLE(dataBytes.toInt())
             onProgress("PCM WAV ပြောင်းပြီးပါပြီ။")
         } catch (e: Exception) {
             output.delete()
