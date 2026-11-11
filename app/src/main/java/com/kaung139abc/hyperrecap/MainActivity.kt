@@ -496,9 +496,9 @@ class MainActivity : Activity() {
                 val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
                 availableVoices = voices.filter { voice ->
                     val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
-                    excluded.none { identity.contains(it) }
+                    voice.locale.language == "my" && excluded.none { identity.contains(it) }
                 }.sortedWith(compareBy<Voice>(
-                    { if (it.locale.language == "my") 0 else 1 },
+                    { if (it.isNetworkConnectionRequired) 0 else 1 },
                     { -it.quality }, { it.locale.displayName }, { it.name }
                 ))
                 val labels = availableVoices.map { voice ->
@@ -531,7 +531,16 @@ class MainActivity : Activity() {
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onError(utteranceId: String?) {
-                    runOnUiThread { status.text = "အသံဖိုင်ဖန်တီးရာတွင် အမှားဖြစ်နေပါသည်။" }
+                    if (utteranceId == "hyper_auto_narration") {
+                        pendingNarrationWav?.delete()
+                        pendingNarrationWav = null
+                        pendingNarratedMp4Destination = null
+                    }
+                    runOnUiThread {
+                        status.text = if (utteranceId == "hyper_auto_narration")
+                            "မြန်မာ TTS က Narration WAV မထုတ်နိုင်ပါ။ Burmese voice data/Internet ကို စစ်ဆေးပါ။"
+                        else "အသံဖိုင်ဖန်တီးရာတွင် အမှားဖြစ်နေပါသည်။"
+                    }
                     pendingAudioFile?.delete()
                     pendingAudioFile = null
                     pendingAudioUri = null
@@ -543,6 +552,11 @@ class MainActivity : Activity() {
                         if (wav == null || destination == null) return
                         pendingNarrationWav = null
                         pendingNarratedMp4Destination = null
+                        if (!wav.isFile || wav.length() <= 44L) {
+                            wav.delete()
+                            runOnUiThread { status.text = "TTS ပြီးဆုံးသော်လည်း Narration WAV အလွတ်/မပြည့်စုံပါ။" }
+                            return
+                        }
                         runOnUiThread { exportNarratedMp4(destination, wav) }
                         return
                     }
@@ -848,8 +862,8 @@ class MainActivity : Activity() {
 
     private fun requestAutoNarratedMp4Destination() {
         if (selectedVideoUri == null || latestRecap.isBlank()) return
-        if (tts == null || availableVoices.isEmpty()) {
-            status.text = "မြန်မာ TTS အသံမရရှိပါ။ ဖုန်း Settings > Text-to-speech တွင် Burmese voice ထည့်သွင်းပါ။"
+        if (tts == null || availableVoices.isEmpty() || tts?.voice?.locale?.language != "my") {
+            status.text = "မြန်မာ TTS အသံမရရှိပါ။ ဖုန်း Settings > Text-to-speech တွင် Burmese voice ထည့်သွင်းပြီး ပြန်ရွေးပါ။"
             return
         }
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -862,6 +876,10 @@ class MainActivity : Activity() {
 
     private fun beginAutomaticNarrationExport(destination: Uri) {
         val engine = tts ?: run { status.text = "TTS Engine မရရှိပါ။"; return }
+        if (availableVoices.isEmpty() || engine.voice?.locale?.language != "my") {
+            status.text = "မြန်မာဘာသာ TTS Voice မရွေးထားပါ။ အခြားဘာသာအသံဖြင့် မြန်မာစာ မဖတ်စေပါ။"
+            return
+        }
         if (latestRecap.isBlank() || selectedVideoUri == null) {
             status.text = "Recap သို့မဟုတ် Video မရှိပါ။"
             return
@@ -1168,7 +1186,13 @@ class MainActivity : Activity() {
                     latestSrt = SrtTranscript.toSrt(cues)
                     recapOutput.text = "Whisper Transcript ရရှိပါပြီ။ Recap ကို အလိုအလျောက် ဖန်တီးနေပါသည်..."
                     status.text = "Whisper Offline Transcription ပြီးပါပြီ။ ${cues.size} အပိုင်း ရရှိသည်။ မူရင်း Video အချိန်အပိုင်းအခြားများကို SRT တွင် ထိန်းသိမ်းထားသည်။"
-                    if (transcript.length >= 80) generateRecap()
+                    if (transcript.length >= 80) {
+                        generateRecap()
+                    } else {
+                        latestRecap = ""
+                        recapOutput.text = "အသံစာသား မလုံလောက်သဖြင့် ယုံကြည်စိတ်ချရသော Recap မထုတ်နိုင်ပါ။"
+                        status.text = "Whisper မှ ရရှိသော Transcript သည် Recap အတွက် မလုံလောက်ပါ။ Video အသံ/ဘာသာစကားကို စစ်ဆေးပါ။"
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
