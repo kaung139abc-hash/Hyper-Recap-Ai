@@ -36,8 +36,7 @@ jobs:
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar \
             -o app/libs/sherpa-onnx.aar
           unzip -t app/libs/sherpa-onnx.aar >/dev/null
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Build debug APK\n        run: gradle --no-daemon assembleDebug\n      - name: Validate minified release build (unsigned)\n        run: gradle --no-daemon assembleRelease
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
