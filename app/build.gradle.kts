@@ -26,4 +26,5 @@ dependencies {
     implementation(files("libs/sherpa-onnx.aar"))
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("commons-io:commons-io:2.17.0")
+    implementation("androidx.media3:media3-transformer:1.8.0")
 }
