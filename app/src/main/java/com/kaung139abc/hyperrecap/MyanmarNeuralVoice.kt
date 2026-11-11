@@ -71,7 +71,7 @@ object MyanmarNeuralVoice {
                         wav.write(silenceBytes)
                         dataBytes += silenceBytes.size
                     }
-                    onProgress("မြန်မာ Neural Voice ဖန်တီးနေသည် — \${index + 1}/\${chunks.size}")
+                    onProgress("မြန်မာ Neural Voice ဖန်တီးနေသည် — ${index + 1}/${chunks.size}")
                 }
                 if (dataBytes > 0xffffffffL - 36L) {
                     throw IllegalStateException("Neural WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
@@ -130,7 +130,7 @@ object MyanmarNeuralVoice {
         try {
             connection.connect()
             if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("$label Download မအောင်မြင်ပါ (HTTP \${connection.responseCode})")
+                throw IllegalStateException("$label Download မအောင်မြင်ပါ (HTTP ${connection.responseCode})")
             }
             val total = connection.contentLengthLong
             connection.inputStream.use { input ->
@@ -142,8 +142,8 @@ object MyanmarNeuralVoice {
                         if (count < 0) break
                         output.write(buffer, 0, count)
                         received += count
-                        if (total > 0) onProgress("$label Download — \${(received * 100 / total).coerceIn(0, 100)}%")
-                        else onProgress("$label Download — \${received / (1024 * 1024)} MB")
+                        if (total > 0) onProgress("$label Download — ${(received * 100 / total).coerceIn(0, 100)}%")
+                        else onProgress("$label Download — ${received / (1024 * 1024)} MB")
                     }
                 }
             }
