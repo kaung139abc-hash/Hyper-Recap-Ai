@@ -60,3 +60,17 @@ The workflow can also be started manually with **Actions → Android APK → Run
 When an SRT subtitle file is imported, the app now parses its cue timestamps and ranks subtitle cues locally. The recap text and exported SRT are built from the same selected cues, preserving their original movie timestamps. This provides source-aligned recap subtitles when a matching SRT transcript is available. TXT transcript imports and manually pasted text still use estimated narration timing for the generated SRT.
 
 Whisper transcription can now create these source-window-timed cues. This still does not translate the transcript. The app can render imported or generated SRT cues into an MP4 using Media3 Transformer.
+
+
+## Commercial licensing foundation (v0.5.0)
+
+The repository now includes:
+- `license-server/`: Cloudflare Worker + D1 API for hashed license keys, 3-day trial, 30-day monthly, lifetime, device binding, revoke, extend, and stats.
+- `license-server/admin.html`: browser-based owner dashboard.
+- Android license activation/verification UI and a device identifier client (`LicenseManager.kt`).
+- R8 minification/resource shrinking configuration and CI validation of an unsigned release build.
+
+### Not ready for paid public sale yet
+The Worker must be deployed and its D1 database created; replace `LicenseManager.SERVER_URL` with the real Worker URL. The Android UI currently lets a buyer activate/check a key, but it does **not yet enforce a license lock on every paid feature**. The admin dashboard is a static page and must be hosted privately; never expose the admin secret publicly. Payments are not automated. The release APK is not signed with the owner's private release keystore. Do not sell this build as a fully protected commercial product until those steps and on-device tests are complete.
+
+The current neural Myanmar MMS voice has a CC BY-NC 4.0 license and must be replaced or separately licensed for commercial distribution.
