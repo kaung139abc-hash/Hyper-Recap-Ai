@@ -1,6 +1,6 @@
 name = "hyper-recap-license"
 main = "src/index.js"
-compatibility_date = "2026-11-11"
+compatibility_date = "2026-11-11"\n\n[ai]\nbinding = "AI"
 
 [assets]
 directory = "./public"
