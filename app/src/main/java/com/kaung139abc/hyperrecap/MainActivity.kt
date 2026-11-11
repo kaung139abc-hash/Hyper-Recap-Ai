@@ -484,6 +484,112 @@ class MainActivity : Activity() {
         recapOutput.text = latestRecap
     }
 
+
+    private fun requestSubtitleMp4Destination() {
+        if (selectedVideoUri == null) {
+            status.text = "အရင်ဆုံး Video ရွေးပါ။"
+            return
+        }
+        if (latestSrt.isBlank()) {
+            status.text = "အရင်ဆုံး Whisper Transcription လုပ်ပါ သို့မဟုတ် SRT Recap Generate လုပ်ပါ။"
+            return
+        }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "video/mp4"
+            putExtra(Intent.EXTRA_TITLE, "HyperRecap-Subtitled.mp4")
+        }
+        startActivityForResult(intent, REQUEST_SAVE_OVERLAY_MP4)
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun startSubtitleMp4Export(destination: Uri) {
+        val source = selectedVideoUri ?: run {
+            status.text = "Video မရွေးရသေးပါ။"
+            return
+        }
+        val cues = SrtTranscript.parse(latestSrt)
+        if (cues.isEmpty()) {
+            status.text = "အသုံးပြုနိုင်သော SRT Subtitle မတွေ့ပါ။"
+            return
+        }
+        if (activeTransformer != null) {
+            status.text = "Subtitle MP4 Export လုပ်ဆောင်နေဆဲပါ။"
+            return
+        }
+        val output = File(cacheDir, "hyper_subtitled_" + System.currentTimeMillis() + ".mp4")
+        try {
+            var width = 1280
+            var height = 720
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(this, source)
+                width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: width
+                height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: height
+                val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                if (rotation == 90 || rotation == 270) {
+                    val temp = width
+                    width = height
+                    height = temp
+                }
+            } finally {
+                retriever.release()
+            }
+            val overlay = SubtitleBurnIn.createEffect(width.coerceIn(320, 3840), height.coerceIn(320, 3840), cues)
+            val edited = EditedMediaItem.Builder(MediaItem.fromUri(source))
+                .setEffects(Effects(emptyList(), listOf(overlay)))
+                .build()
+            val sequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO))
+                .addItem(edited)
+                .build()
+            val composition = Composition.Builder(sequence).build()
+            output.createNewFile()
+            val transformer = Transformer.Builder(this)
+                .addListener(object : Transformer.Listener {
+                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        Thread {
+                            try {
+                                contentResolver.openOutputStream(destination)?.use { target ->
+                                    output.inputStream().use { input -> input.copyTo(target) }
+                                } ?: throw IllegalStateException("MP4 သိမ်းမည့်နေရာ ဖွင့်မရပါ။")
+                                runOnUiThread {
+                                    status.text = "မြန်မာ Subtitle ကို Video ထဲ Burn-in လုပ်ပြီး MP4 သိမ်းပြီးပါပြီ။"
+                                }
+                            } catch (e: Exception) {
+                                runOnUiThread { status.text = "MP4 သိမ်းမရပါ: " + (e.localizedMessage ?: "Error") }
+                            } finally {
+                                output.delete()
+                                activeTransformer = null
+                                pendingSubtitleDestination = null
+                            }
+                        }.start()
+                    }
+
+                    override fun onError(
+                        composition: Composition,
+                        exportResult: ExportResult,
+                        exportException: ExportException
+                    ) {
+                        output.delete()
+                        activeTransformer = null
+                        pendingSubtitleDestination = null
+                        runOnUiThread {
+                            status.text = "Subtitle MP4 Export မအောင်မြင်ပါ: " + (exportException.localizedMessage ?: "Encoding error")
+                        }
+                    }
+                })
+                .build()
+            activeTransformer = transformer
+            pendingSubtitleDestination = destination
+            status.text = "Subtitle ကို Video frame တစ်ခုချင်းစီထဲ ထည့်ပြီး MP4 encode လုပ်နေပါသည်။ Video ကြာလျှင် အချိန်ကြာနိုင်သည်..."
+            transformer.start(composition, output.absolutePath)
+        } catch (e: Exception) {
+            output.delete()
+            activeTransformer = null
+            status.text = "Subtitle MP4 စတင်မရပါ: " + (e.localizedMessage ?: "Export error")
+        }
+    }
+
     private fun saveSubtitles() {
         if (latestSrt.isBlank()) {
             status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
@@ -684,6 +790,10 @@ class MainActivity : Activity() {
             synthesizeRecapAudio(uri)
             return
         }
+        if (requestCode == REQUEST_SAVE_OVERLAY_MP4) {
+            startSubtitleMp4Export(uri)
+            return
+        }
         if (requestCode == REQUEST_TRANSCRIPT) {
             Thread {
                 try {
@@ -789,5 +899,5 @@ class MainActivity : Activity() {
         else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
-    companion object { private const val REQUEST_TRANSCRIPT = 1007; private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006 }
+    companion object { private const val REQUEST_TRANSCRIPT = 1007; private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006; private const val REQUEST_SAVE_OVERLAY_MP4 = 1008 }
 }
