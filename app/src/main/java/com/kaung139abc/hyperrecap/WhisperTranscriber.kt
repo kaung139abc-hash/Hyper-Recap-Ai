@@ -28,7 +28,7 @@ object WhisperTranscriber {
     private const val MODEL_DIR = "sherpa-onnx-whisper-base"
     private const val SAMPLE_RATE = 16_000
     private const val WINDOW_SECONDS = 28
-    private const val OVERLAP_SECONDS = 1
+    private const val OVERLAP_SECONDS = 0
 
     data class Segment(val startMs: Long, val endMs: Long, val text: String)
 
