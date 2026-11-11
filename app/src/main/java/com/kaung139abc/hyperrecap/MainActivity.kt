@@ -51,6 +51,7 @@ class MainActivity : Activity() {
     private var selectedVideoUri: Uri? = null
     private var pendingExtractedAudio: File? = null
     private var pendingDecodedWav: File? = null
+    @Volatile private var transcriptionInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -137,6 +138,10 @@ class MainActivity : Activity() {
         root.addView(Button(this).apply {
             text = "Video အသံကို WAV (PCM) ပြောင်းထုတ်ရန်"
             setOnClickListener { decodeSelectedAudio() }
+        }, matchWidth())
+        root.addView(Button(this).apply {
+            text = "Whisper Offline Speech-to-Text (မြန်မာအပါအဝင်)"
+            setOnClickListener { transcribeSelectedVideo() }
         }, matchWidth())
         root.addView(Button(this).apply {
             text = "မူရင်း Audio Track ကို M4A ထုတ်ရန်"
@@ -547,6 +552,52 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 output.delete()
                 runOnUiThread { status.text = "PCM WAV ပြောင်းမရပါ: " + (e.localizedMessage ?: "Unsupported audio") }
+            }
+        }.start()
+    }
+
+    private fun transcribeSelectedVideo() {
+        val sourceUri = selectedVideoUri
+        if (sourceUri == null) {
+            status.text = "အရင်ဆုံး Video ရွေးပါ။"
+            return
+        }
+        if (transcriptionInProgress) {
+            status.text = "Whisper Speech-to-Text လုပ်ဆောင်နေဆဲပါ။"
+            return
+        }
+        transcriptionInProgress = true
+        status.text = "Whisper အတွက် Video အသံကို PCM ပြောင်းနေပါသည်..."
+        Thread {
+            val wav = File(cacheDir, "hyper_whisper_${System.currentTimeMillis()}.wav")
+            try {
+                AudioDecoder.decodeToWav(this, sourceUri, wav) { message ->
+                    runOnUiThread { status.text = message }
+                }
+                val segments = WhisperTranscriber.transcribeVideoAudio(this, wav) { message ->
+                    runOnUiThread { status.text = message }
+                }
+                if (segments.isEmpty()) {
+                    throw IllegalStateException("စကားပြောသံ မတွေ့ပါ။ Video Audio Track ကို စစ်ဆေးပါ။")
+                }
+                val cues = segments.map { SrtTranscript.Cue(it.startMs, it.endMs, it.text) }
+                val transcript = cues.joinToString("\n") { it.text }
+                runOnUiThread {
+                    importedSrtCues = cues
+                    importedSrtSource = transcript
+                    transcriptInput.setText(transcript)
+                    latestSrt = SrtTranscript.toSrt(cues)
+                    recapOutput.text = "Whisper Transcript ရရှိပါပြီ။ Generate Offline Recap ကို နှိပ်ပါ။"
+                    status.text = "Whisper Offline Transcription ပြီးပါပြီ။ ${cues.size} အပိုင်း ရရှိသည်။ မူရင်း Video အချိန်အပိုင်းအခြားများကို SRT တွင် ထိန်းသိမ်းထားသည်။"
+                    if (transcript.length >= 80) generateRecap()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "Whisper Transcription မအောင်မြင်ပါ: ${e.localizedMessage ?: "Model/Audio error"}"
+                }
+            } finally {
+                wav.delete()
+                transcriptionInProgress = false
             }
         }.start()
     }
