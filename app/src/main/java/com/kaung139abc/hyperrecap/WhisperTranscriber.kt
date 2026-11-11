@@ -309,8 +309,8 @@ object WhisperTranscriber {
                 input.seek(chunkStart + size + (size and 1L))
                 if (dataOffset >= 0 && sampleRate > 0 && channels > 0) break
             }
-            if (encoding != 1 || bits != 16 || sampleRate <= 0 || channels !in 1..2 || dataOffset < 0) {
-                throw IllegalArgumentException("Whisper အတွက် PCM 16-bit WAV (mono/stereo) လိုအပ်ပါသည်။")
+            if (encoding != 1 || bits != 16 || sampleRate <= 0 || channels !in 1..8 || dataOffset < 0) {
+                throw IllegalArgumentException("Whisper အတွက် PCM 16-bit WAV (mono/multichannel) လိုအပ်ပါသည်။")
             }
             return WavInfo(sampleRate, channels, dataOffset, dataBytes)
         }
