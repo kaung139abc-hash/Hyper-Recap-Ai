@@ -516,19 +516,20 @@ class MainActivity : Activity() {
             })
             try {
                 val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
+                // Burmese-only voice list: never offer other-language fallback voices.
                 availableVoices = (tts?.voices ?: emptySet())
                     .filter { voice ->
                         val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
-                        excluded.none { identity.contains(it) }
+                        voice.locale.language == "my" && excluded.none { identity.contains(it) }
                     }
-                    .sortedWith(compareBy<Voice>({ if (it.locale.language == "my") 0 else 1 }, { -it.quality }, { it.locale.displayName }, { it.name }))
+                    .sortedWith(compareBy<Voice>({ if (it.isNetworkConnectionRequired) 0 else 1 }, { -it.quality }, { it.name }))
                 val labels = availableVoices.map { voice ->
                     val mode = if (voice.isNetworkConnectionRequired) "Online" else "Offline"
                     "${voice.locale.displayName} — ${voice.name} — $mode — Quality ${voice.quality}"
                 }
                 if (labels.isEmpty()) {
                     voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, listOf("အသုံးပြုနိုင်သော အသံမရှိပါ"))
-                    voiceInfo.text = "ဒီဖုန်းမှာ ရွေးချယ်နိုင်တဲ့ TTS အသံ မတွေ့ပါ။ Settings > Text-to-speech မှာ Voice data ထည့်သွင်းပါ။"
+                    voiceInfo.text = "မြန်မာဘာသာ TTS အသံ မတွေ့ပါ။ အခြားဘာသာအသံကို အစားထိုးမသုံးပါ။ လူသားဆန်သော မြန်မာ Neural Voice ထည့်သွင်းရန် လိုအပ်နေပါသည်။"
                 } else {
                     voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
                     voicePicker.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
@@ -543,7 +544,7 @@ class MainActivity : Activity() {
                             }
                         }
                     }
-                    voiceInfo.text = "အသံ ${labels.size} မျိုး တွေ့ရှိသည်။ မြန်မာအသံရှိပါက စာရင်းအပေါ်ဆုံးတွင် ဦးစားပေးထားသည်။ Quality မြင့်သောအသံများကိုလည်း ဦးစားပေးထားသည်။"
+                    voiceInfo.text = "မြန်မာဘာသာအသံ ${labels.size} မျိုးသာ ပြထားသည်။ လူသားဆန်မှုနှင့် အသံကြည်လင်မှုသည် ဖုန်း TTS Engine ပေါ်မူတည်ပါသည်။"
                 }
             } catch (e: Exception) {
                 voiceInfo.text = "အသံစာရင်း ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}"
