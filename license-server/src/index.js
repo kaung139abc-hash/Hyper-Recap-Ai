@@ -9,6 +9,9 @@ export default {
   if(req.method==="OPTIONS") return new Response(null,{headers:cors});
   const url=new URL(req.url), path=url.pathname;
   if(path==="/health") return json({ok:true,service:"Hyper Recap AI License Server"});
+  if(req.method==="GET" && (path==="/admin" || path==="/admin.html")) {
+   return env.ASSETS.fetch(new Request(new URL("/admin.html",url),req));
+  }
   if(req.method!=="POST") return json({error:"POST required"},405);
   const b=await body(req);
   if(path==="/v1/activate" || path==="/v1/check"){
