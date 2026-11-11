@@ -1,20 +1,31 @@
 # Hyper Recap AI
 
-Android-first, offline-focused movie recap project for the Redmi 13R 5G (4 GB RAM).
+Android-first, offline-focused recap app for modest Android phones (including 4 GB RAM devices).
 
-## Current prototype
+## Implemented
 
-- Native Android app (Kotlin).
-- Selects a video using Android's document picker.
-- Reads and displays the selected video's duration, including videos longer than two hours.
-- GitHub Actions workflow builds a debug APK and uploads it as an artifact.
+- Native Kotlin Android application.
+- Select a local video with Android's document picker and inspect its duration, including videos longer than two hours.
+- Download direct video-file URLs ending in MP4, MKV, WEBM, MOV or M4V.
+- Accept shared text links from other Android apps.
+- Offline extractive recap for pasted transcript/story text. It runs locally and makes no API/network request.
+- Save generated recap as a UTF-8 TXT file.
+- GitHub Actions builds a debug APK on every push to `main` and uploads it as an artifact.
 
-## Build
+## Current limitations — important
 
-The GitHub Actions workflow runs on every push to `main`, or manually from **Actions → Android APK → Run workflow**.
+This is not yet a complete automatic video-to-recap pipeline. Selecting a video currently reads its metadata; it does **not** extract its soundtrack or transcribe speech. The offline recap engine summarizes text supplied by the user. Automatic local speech-to-text (for example, a quantized Whisper.cpp model), translation, natural Burmese neural voice, subtitle timing and rendered MP4 export remain future implementation and device testing work.
 
-When the workflow succeeds, open its run, scroll to **Artifacts**, and download `Hyper-Recap-AI-debug`. Extract the ZIP to get `app-debug.apk`.
+A no-API/no-daily-quota design avoids paid service limits, but local processing is bounded by phone RAM, storage, battery and speed. Long videos must be processed in chunks. A 4 GB RAM device needs small quantized models.
 
-## Important status
+YouTube, Facebook, TikTok and Instagram page URLs are not equivalent to direct video-file URLs. Downloading them is not guaranteed; access, login, platform restrictions and copyright permissions apply. Use video files you own or are authorized to process.
 
-This is the initial app foundation, not a completed AI recap engine yet. Local scene analysis, speech recognition, summarization, Burmese translation/TTS, subtitle generation and MP4 export still need to be implemented and tested separately. A 4 GB RAM phone requires quantized, memory-bounded models and chunked processing; processing speed depends on video resolution, codec and device thermals.
+## Build and download APK
+
+1. Open the repository's **Actions** tab.
+2. Select **Android APK** and open the latest run for the `main` branch.
+3. Wait until the run completes successfully.
+4. Under **Artifacts**, download `Hyper-Recap-AI-debug` and extract `app-debug.apk`.
+5. Install the APK on Android. If Android asks, allow installation from that file manager/browser.
+
+The workflow can also be started manually with **Actions → Android APK → Run workflow**.
