@@ -121,13 +121,37 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
             }
 
-        root.addView(ImageView(this).apply {
+        val brandHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(14, 14, 14, 14)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFF151D30.toInt())
+                cornerRadius = 22f * resources.displayMetrics.density
+                setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1), 0xFF46527A.toInt())
+            }
+        }
+        brandHeader.addView(ImageView(this).apply {
             setImageResource(R.drawable.hyper_recap_logo)
             contentDescription = "Hyper Recap AI Logo"
             scaleType = ImageView.ScaleType.FIT_CENTER
-        }, LinearLayout.LayoutParams(176, 176))
-        root.addView(label("HYPER RECAP AI", 27f, 0xFF8EA5FF.toInt()))
-        root.addView(label("RECAP • TRANSLATE • DUB • ENJOY", 12f, 0xFFB8C0D9.toInt()))
+            adjustViewBounds = true
+        }, LinearLayout.LayoutParams((76 * resources.displayMetrics.density).toInt(), (76 * resources.displayMetrics.density).toInt()))
+        val brandText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((14 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+        }
+        brandText.addView(label("HYPER RECAP AI", 23f, 0xFFC5BCFF.toInt()).apply {
+            gravity = Gravity.START
+            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
+            letterSpacing = 0.035f
+        })
+        brandText.addView(label("RECAP  •  TRANSLATE  •  DUB", 10f, 0xFFB8C0D9.toInt()).apply {
+            gravity = Gravity.START
+        })
+        brandHeader.addView(brandText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(brandHeader, matchWidth())
         root.addView(space(10))
         val licenseKeyInput = EditText(this).apply {
             hint = "License Key ထည့်ပါ"
@@ -325,21 +349,17 @@ class MainActivity : Activity() {
         root.setBackgroundColor(0xFF090E1B.toInt())
         root.clipToPadding = false
 
-        // Give the existing title area a stronger premium hierarchy.
-        val title = root.getChildAt(0) as? TextView
+        // Brand header is a compact logo card; keep its artwork and typography untouched.
+        val brandHeader = root.getChildAt(0) as? LinearLayout
+        brandHeader?.elevation = dp(3).toFloat()
+        val title = (brandHeader?.getChildAt(1) as? LinearLayout)?.getChildAt(0) as? TextView
         title?.apply {
-            textSize = 29f
-            setTypeface(android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL))
+            textSize = 23f
             setTextColor(0xFFC5BCFF.toInt())
-            letterSpacing = 0.08f
-            setPadding(0, dp(12), 0, dp(4))
+            setPadding(0, 0, 0, dp(3))
         }
-        (root.getChildAt(1) as? TextView)?.apply {
-            textSize = 13f
-            setTextColor(muted)
-            letterSpacing = 0.04f
-            setPadding(0, 0, 0, dp(18))
-        }
+        val tagline = (brandHeader?.getChildAt(1) as? LinearLayout)?.getChildAt(1) as? TextView
+        tagline?.setTextColor(muted)
 
         fun style(view: View) {
             when (view) {
