@@ -995,18 +995,28 @@ class MainActivity : Activity() {
                 if (sourceDurationMs <= 0L || narrationDurationMs <= 0L) {
                     throw IllegalStateException("Video/Narration ကြာချိန်ကို ဖတ်မရပါ။")
                 }
-                val clipCount = minOf(cues.size, ((narrationDurationMs + 7_999L) / 8_000L).toInt().coerceAtLeast(1))
-                val chosen = if (clipCount == cues.size) cues else {
-                    (0 until clipCount).map { index ->
-                        cues[(index.toLong() * cues.size / clipCount).toInt()]
+                // Match montage length to narration length. Reuse the selected story
+                // highlights when the narration is longer than the available cue count.
+                val clipCount = ((narrationDurationMs + 9_999L) / 10_000L)
+                    .coerceAtLeast(1L).coerceAtMost(600L).toInt()
+                val chosen = (0 until clipCount).map { index ->
+                    val cueIndex = if (clipCount <= cues.size) {
+                        (index.toLong() * cues.size / clipCount).toInt()
+                    } else {
+                        index % cues.size
                     }
+                    cues[cueIndex]
                 }
-                val perClipMs = ((narrationDurationMs + chosen.size - 1) / chosen.size).coerceIn(3_000L, 15_000L)
+                val perClipMs = ((narrationDurationMs + clipCount - 1L) / clipCount)
+                    .coerceAtLeast(1_000L)
                 chosen.forEach { cue ->
-                    val center = ((cue.startMs + cue.endMs) / 2L).coerceIn(0L, sourceDurationMs - 1L)
-                    val start = (center - perClipMs / 2L).coerceAtLeast(0L)
-                    val end = (start + perClipMs).coerceAtMost(sourceDurationMs)
-                    if (end - start >= 1_000L) {
+                    val center = ((cue.startMs + cue.endMs) / 2L)
+                        .coerceIn(0L, sourceDurationMs - 1L)
+                    val clipLength = perClipMs.coerceAtMost(sourceDurationMs)
+                    val latestStart = (sourceDurationMs - clipLength).coerceAtLeast(0L)
+                    val start = (center - clipLength / 2L).coerceIn(0L, latestStart)
+                    val end = (start + clipLength).coerceAtMost(sourceDurationMs)
+                    if (end > start) {
                         val clippedItem = MediaItem.Builder()
                             .setUri(source)
                             .setClippingConfiguration(
