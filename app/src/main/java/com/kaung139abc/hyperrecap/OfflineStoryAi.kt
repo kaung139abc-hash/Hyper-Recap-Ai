@@ -82,8 +82,6 @@ object OfflineStoryAi {
             )
             return LlamaBridge.generate(finalPrompt).trim().takeIf { it.length >= 80 }
                 ?: throw IllegalStateException("Offline Story AI ၏ နောက်ဆုံး Recap မပြည့်စုံပါ။")
-        }
-    
         } finally {
             synchronized(modelLock) {
                 if (modelReady) {
@@ -95,6 +93,7 @@ object OfflineStoryAi {
                 }
             }
         }
+    }
 
     private fun groupNotes(notes: List<String>, maxChars: Int): List<String> {
         val groups = ArrayList<String>()
