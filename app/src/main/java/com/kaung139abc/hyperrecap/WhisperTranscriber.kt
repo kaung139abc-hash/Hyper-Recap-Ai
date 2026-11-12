@@ -46,6 +46,7 @@ object WhisperTranscriber {
                     decoder = File(model, "base-decoder.int8.onnx").absolutePath,
                     language = "auto",
                     task = "transcribe",
+                    enableTokenTimestamps = true,
                     enableSegmentTimestamps = true
                 ),
                 tokens = File(model, "base-tokens.txt").absolutePath,
@@ -200,26 +201,79 @@ object WhisperTranscriber {
                 }
                 val samples = resample(mono, info.sampleRate, SAMPLE_RATE)
                 val stream = recognizer.createStream()
-                val text = try {
+                val result = try {
                     stream.acceptWaveform(samples, SAMPLE_RATE)
                     recognizer.decode(stream)
-                    recognizer.getResult(stream).text.trim()
+                    recognizer.getResult(stream)
                 } finally {
                     stream.release()
                 }
-                if (text.isNotBlank()) {
-                    val pieces = splitSubtitleText(text, 88)
-                    val weights = pieces.map { it.length.coerceAtLeast(1) }
-                    val totalWeight = weights.sum().coerceAtLeast(1)
-                    val windowDuration = endMs - startMs
-                    var cueStart = startMs
-                    pieces.forEachIndexed { pieceIndex, piece ->
-                        val cueEnd = if (pieceIndex == pieces.lastIndex) endMs else {
-                            (cueStart + (windowDuration * weights[pieceIndex] / totalWeight))
-                                .coerceAtMost(endMs)
+                val recognizedText = result.text.trim()
+                if (recognizedText.isNotBlank()) {
+                    val tokenTexts = result.tokens
+                    val tokenStarts = result.timestamps
+                    val tokenDurations = result.durations
+                    val hasUsableAlignment = tokenTexts.isNotEmpty() &&
+                        tokenStarts.size == tokenTexts.size &&
+                        tokenDurations.size == tokenTexts.size &&
+                        tokenStarts.any { it.isFinite() && it >= 0f }
+
+                    if (hasUsableAlignment) {
+                        val aligned = mutableListOf<Segment>()
+                        var groupText = StringBuilder()
+                        var groupStart = Long.MAX_VALUE
+                        var groupEnd = Long.MIN_VALUE
+
+                        fun flushAlignedGroup() {
+                            val value = groupText.toString().trim()
+                            if (value.isNotBlank() && groupEnd > groupStart) {
+                                aligned += Segment(
+                                    (startMs + groupStart).coerceAtLeast(startMs),
+                                    (startMs + groupEnd).coerceAtMost(endMs),
+                                    value
+                                )
+                            }
+                            groupText = StringBuilder()
+                            groupStart = Long.MAX_VALUE
+                            groupEnd = Long.MIN_VALUE
                         }
-                        if (cueEnd > cueStart) segments += Segment(cueStart, cueEnd, piece)
-                        cueStart = cueEnd
+
+                        for (tokenIndex in tokenTexts.indices) {
+                            val token = tokenTexts[tokenIndex]
+                            val relativeStart = (tokenStarts[tokenIndex] * 1000f).toLong()
+                            val duration = (tokenDurations[tokenIndex].coerceAtLeast(0f) * 1000f).toLong()
+                            if (token.isBlank() || relativeStart < 0L) continue
+                            val absoluteStart = relativeStart.coerceIn(0L, endMs - startMs)
+                            val absoluteEnd = (relativeStart + duration).coerceIn(absoluteStart, endMs - startMs)
+                            val nextText = groupText.toString() + token
+                            val gap = if (groupEnd == Long.MIN_VALUE) 0L else absoluteStart - groupEnd
+                            val shouldSplit = groupText.isNotEmpty() &&
+                                (nextText.length > 88 || gap > 1_500L ||
+                                    groupText.lastOrNull() in listOf('။', '.', '!', '?'))
+                            if (shouldSplit) flushAlignedGroup()
+                            groupText.append(token)
+                            groupStart = minOf(groupStart, absoluteStart)
+                            groupEnd = maxOf(groupEnd, maxOf(absoluteEnd, absoluteStart + 1L))
+                        }
+                        flushAlignedGroup()
+                        if (aligned.isNotEmpty()) segments += aligned
+                    }
+
+                    // Fallback only when this sherpa runtime/model returns no valid DTW alignment.
+                    if (!hasUsableAlignment || segments.none { it.startMs >= startMs && it.endMs <= endMs }) {
+                        val pieces = splitSubtitleText(recognizedText, 88)
+                        val weights = pieces.map { it.length.coerceAtLeast(1) }
+                        val totalWeight = weights.sum().coerceAtLeast(1)
+                        val windowDuration = endMs - startMs
+                        var cueStart = startMs
+                        pieces.forEachIndexed { pieceIndex, piece ->
+                            val cueEnd = if (pieceIndex == pieces.lastIndex) endMs else {
+                                (cueStart + (windowDuration * weights[pieceIndex] / totalWeight))
+                                    .coerceAtMost(endMs)
+                            }
+                            if (cueEnd > cueStart) segments += Segment(cueStart, cueEnd, piece)
+                            cueStart = cueEnd
+                        }
                     }
                 }
                 index++
