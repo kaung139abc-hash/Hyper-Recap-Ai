@@ -17,7 +17,11 @@ object OfflineRecap {
     // Burmese full stops are often written without a following space.
     // Split after punctuation whether or not whitespace follows it.
     private val sentenceBoundary = Regex("(?<=[။.!?])\\s*|\\n+")
-    private val tokenizer = Regex("[\\p{L}\\p{N}]{2,}")
+
+    private val turningPointTerms = listOf(
+        "but", "however", "because", "suddenly", "finally", "discover", "reveals", "secret", "betray", "escape",
+        "သို့သော်", "ဒါပေမဲ့", "အမှန်တရား", "လျှို့ဝှက်", "သတ်", "သေဆုံး", "ထွက်ပြေး", "နောက်ဆုံး", "ရုတ်တရက်", "ဖော်ထုတ်"
+    )
 
     private val stopWords = setOf(
         "the", "and", "that", "this", "with", "from", "then", "when", "what",
@@ -72,10 +76,7 @@ object OfflineRecap {
         if (sentences.isEmpty()) return ""
 
         val termLists = sentences.map { sentence ->
-            tokenizer.findAll(sentence.lowercase(Locale.ROOT))
-                .map { it.value }
-                .filter { it !in stopWords }
-                .toList()
+            MyanmarTextTokenizer.tokens(sentence).filter { it !in stopWords }
         }
         val documentFrequency = mutableMapOf<String, Int>()
         termLists.forEach { terms -> terms.toSet().forEach { term ->
@@ -95,9 +96,15 @@ object OfflineRecap {
                 index == sentences.lastIndex -> 1.04
                 else -> 1.0
             }
-            val dialogueBoost = if (sentence.contains('“') || sentence.contains('”') ||
-                sentence.contains('"') || sentence.contains('။')) 1.02 else 1.0
-            Candidate(index, sentence, unique, density * positionBoost * dialogueBoost)
+            val progress = index.toDouble() / (sentences.size - 1).coerceAtLeast(1)
+            val storyArcBoost = when {
+                progress < 0.10 -> 1.16
+                progress > 0.90 -> 1.20
+                progress in 0.38..0.68 -> 1.08
+                else -> 1.0
+            }
+            val turningPointBoost = if (turningPointTerms.any { sentence.contains(it, ignoreCase = true) }) 1.18 else 1.0
+            Candidate(index, sentence, unique, density * positionBoost * storyArcBoost * turningPointBoost)
         }
 
         val wanted = maxSentences.coerceIn(1, sentences.size)
