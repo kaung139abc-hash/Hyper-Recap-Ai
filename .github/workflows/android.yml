@@ -54,6 +54,13 @@ jobs:
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/hyper-recap-signing/release.jks
         run: gradle --no-daemon assembleRelease
+      - name: Verify signed release APK
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.kaung139abc.hyperrecap'"
       - name: Validate minified release build (unsigned fallback)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' || env.ANDROID_KEY_ALIAS == '' || env.ANDROID_KEY_PASSWORD == '' }}
         run: gradle --no-daemon assembleRelease
