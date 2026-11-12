@@ -137,7 +137,7 @@ export default {
    if(path==="/admin/create"){
     if(!["trial","monthly","lifetime"].includes(b.plan)) return json({error:"Invalid plan"},400);
     const plan=b.plan;
-    const days=plan==="trial"?3:plan==="monthly"?30:0;
+    const days=plan==="trial"?1:plan==="monthly"?30:0;
     const license=key(), expiry=days?new Date(Date.now()+days*86400000).toISOString():null;
     await env.DB.prepare("INSERT INTO licenses (key_hash,plan,status,expires_at,device_limit,devices_json,customer_note,created_at) VALUES (?,?,?,?,?,?,?,?)").bind(await hash(license),plan,"active",expiry,Math.max(1,Math.min(5,Number(b.deviceLimit)||1)),"[]",String(b.customerNote||"").slice(0,200),new Date().toISOString()).run();
     return json({licenseKey:license,plan,expiresAt:expiry});
