@@ -31,6 +31,7 @@ object OfflineStoryAi {
     fun summarize(
         context: Context,
         transcript: String,
+        visualContext: String = "",
         onProgress: (String) -> Unit = {}
     ): String {
         val clean = transcript.trim()
@@ -95,10 +96,16 @@ object OfflineStoryAi {
             }
             onProgress("Offline Story AI — ဇာတ်လမ်းအစ၊ အလယ်၊ အဆုံးကို ပေါင်းစပ်ရေးသားနေသည်...")
             configureGeneration(520)
+            val visualEvidence = visualContext.trim().take(2_200)
+            val visualSection = if (visualEvidence.isNotBlank()) {
+                "\n\nTIMESTAMPED VISUAL FRAME EVIDENCE (on-device labels):\n" +
+                    visualEvidence +
+                    "\nUse these labels only as supporting evidence for visible settings and objects. Do not infer dialogue, identity, motives, or plot events that the transcript does not support."
+            } else ""
             val finalPrompt = chatPrompt(
-                system = "You are a professional Burmese movie recap writer. Reconstruct one coherent story from chronological evidence. Explain the setup, key characters, motivations, major turning points, climax and ending. Keep cause-and-effect clear. Do not add unsupported details. Output fluent natural Burmese narration, not bullet points. /no_think",
+                system = "You are a professional Burmese movie recap writer. Reconstruct one coherent story from chronological evidence. Explain the setup, key characters, motivations, major turning points, climax and ending. Keep cause-and-effect clear. Use visual frame evidence only to enrich descriptions of visible settings and objects; never invent plot events. Do not add unsupported details. Output fluent natural Burmese narration, not bullet points. /no_think",
                 user = "Write a coherent Burmese movie recap using all the following ordered scene summaries. Include the ending and avoid repeating events.\n\nSCENE SUMMARIES:\n" +
-                    storyNotes.joinToString("\n\n")
+                    storyNotes.joinToString("\n\n") + visualSection
             )
             return LlamaBridge.generate(finalPrompt).trim().takeIf { it.length >= 80 }
                 ?: throw IllegalStateException("Offline Story AI ၏ နောက်ဆုံး Recap မပြည့်စုံပါ။")
