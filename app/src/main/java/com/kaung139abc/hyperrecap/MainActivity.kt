@@ -1402,6 +1402,15 @@ class MainActivity : Activity() {
             if (!hasVideo || !hasAudio || videoDurationUs <= 0L || audioDurationUs <= 0L) {
                 throw IllegalStateException("MP4 ထဲတွင် Video Track နှင့် မြန်မာ Narration Audio Track နှစ်ခုလုံး မပါဝင်ပါ။")
             }
+            // A valid container can still have a silent tail or narration cut off
+            // when the two Media3 sequences have different durations. Reject that
+            // export instead of reporting success for a visibly/audio-incomplete MP4.
+            val durationDifferenceUs = kotlin.math.abs(videoDurationUs - audioDurationUs)
+            if (durationDifferenceUs > 2_000_000L) {
+                throw IllegalStateException(
+                    "Video နှင့် မြန်မာအသံ ကြာချိန် မကိုက်ညီပါ။ Video ${videoDurationUs / 1_000_000L}s / Audio ${audioDurationUs / 1_000_000L}s"
+                )
+            }
         } finally {
             extractor.release()
         }
