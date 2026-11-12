@@ -58,9 +58,12 @@ object OfflineStoryAi {
             var reductionRound = 1
             while (storyNotes.sumOf { it.length } > 2_600 && reductionRound <= 4) {
                 val groups = groupNotes(storyNotes, 2_300)
+                if (groups.size >= storyNotes.size) {
+                    throw IllegalStateException("ဇာတ်လမ်းအချက်အလက်များကို Model context အတွင်း အကျဉ်းချုပ်မရပါ။ Transcript ကို အပိုင်းခွဲ၍ Recap လုပ်ပါ။")
+                }
                 val reduced = ArrayList<String>(groups.size)
                 groups.forEachIndexed { index, group ->
-                    onProgress("Offline Story AI — ရှည်လျားသောဇာတ်လမ်းကို အဆင့်လိုက်ပေါင်းစပ်နေသည် ($reductionRound / $index)...")
+                    onProgress("Offline Story AI — ရှည်လျားသောဇာတ်လမ်းကို အဆင့်လိုက်ပေါင်းစပ်နေသည် ($reductionRound / ${index + 1})...")
                     val prompt = chatPrompt(
                         system = "You are a precise Burmese story editor. Merge related events, preserve chronology, characters, motivations and cause-and-effect. Never invent details. /no_think",
                         user = "Condense these chronological scene notes into 4 to 6 concise Burmese bullet points. Keep the major turning points and ending evidence.\n\nNOTES:\n$group"
@@ -73,6 +76,9 @@ object OfflineStoryAi {
                 reductionRound++
             }
     
+            if (storyNotes.sumOf { it.length } > 2_600) {
+                throw IllegalStateException("ဇာတ်လမ်းအကျဉ်းချုပ်သည် Offline AI context ထက် ရှည်နေပါသည်။ Recap ကို အပိုင်းခွဲပြီး လုပ်ဆောင်ပါ။")
+            }
             onProgress("Offline Story AI — ဇာတ်လမ်းအစ၊ အလယ်၊ အဆုံးကို ပေါင်းစပ်ရေးသားနေသည်...")
             configureGeneration(520)
             val finalPrompt = chatPrompt(
