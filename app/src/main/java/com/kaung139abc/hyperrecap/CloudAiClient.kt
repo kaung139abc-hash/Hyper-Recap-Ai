@@ -9,31 +9,37 @@ object CloudAiClient {
     private const val MAX_RECAP_CHARS = 20_000
     private const val MAX_TRANSLATE_CHARS = 5_000
 
+    /** Multi-pass synthesis keeps long-film drafts coherent instead of returning a raw concatenation. */
     fun generateBurmeseRecap(context: Context, source: String, visualContext: String = "", progress: (String) -> Unit = {}): String {
         val chunks = splitText(source, MAX_RECAP_CHARS)
         if (chunks.isEmpty()) throw IllegalArgumentException("Recap လုပ်ရန် Transcript မရှိပါ။")
-        val drafts = chunks.mapIndexed { index, chunk ->
-            progress("Cloud AI Recap ဖန်တီးနေသည် — ${index + 1}/${chunks.size}")
-            request(context, "/v1/ai/recap", chunk, visualContext).getString("recap")
+        var level = chunks.mapIndexed { index, chunk ->
+            progress("ဇာတ်လမ်းအပိုင်း ${index + 1}/${chunks.size} ကို အကျဉ်းချုပ်နေသည်...")
+            request(context, "/v1/ai/recap", chunk, visualContext).getString("recap").trim()
+        }.filter { it.isNotBlank() }
+        if (level.isEmpty()) throw IllegalStateException("AI Recap ရလဒ် မရရှိပါ။")
+
+        var round = 1
+        while (level.size > 1 && round <= 8) {
+            val merged = level.mapIndexed { index, draft -> "[အပိုင်း ${index + 1}]\n$draft" }.joinToString("\n\n")
+            val mergeChunks = splitText(merged, MAX_RECAP_CHARS)
+            val next = mergeChunks.mapIndexed { index, chunk ->
+                progress("ဇာတ်လမ်းအပိုင်းများကို ပေါင်းစည်းနေသည် — အဆင့် $round (${index + 1}/${mergeChunks.size})")
+                request(context, "/v1/ai/recap", chunk, visualContext).getString("recap").trim()
+            }.filter { it.isNotBlank() }
+            if (next.isEmpty()) throw IllegalStateException("AI Recap ပေါင်းစည်းမှု မအောင်မြင်ပါ။")
+            if (next.size >= level.size && next.joinToString("").length >= merged.length) return next.joinToString("\n\n")
+            level = next
+            round++
         }
-        if (drafts.size == 1) return drafts.first()
-        val combined = drafts.joinToString("\n\n")
-        if (combined.length <= MAX_RECAP_CHARS) {
-            progress("Recap အပိုင်းများကို နောက်ဆုံးတစ်ကြိမ် ပေါင်းစည်းနေသည်...")
-            return request(context, "/v1/ai/recap", combined, visualContext).getString("recap")
-        }
-        return combined
+        return level.joinToString("\n\n")
     }
 
     fun analyzeVideoFrames(context: Context, frames: List<String>): String {
         if (frames.isEmpty() || frames.size > 2) throw IllegalArgumentException("Frame ၁ မှ ၂ ပုံအထိသာ ပို့နိုင်ပါသည်။")
         val license = LicenseManager.savedKey(context)
         if (license.isBlank()) throw IllegalStateException("License Key ကို အရင် Activate လုပ်ပါ။")
-        val payload = JSONObject()
-            .put("licenseKey", license)
-            .put("deviceId", LicenseManager.deviceId(context))
-            .put("frames", org.json.JSONArray(frames))
-            .toString()
+        val payload = JSONObject().put("licenseKey", license).put("deviceId", LicenseManager.deviceId(context)).put("frames", org.json.JSONArray(frames)).toString()
         return postJson("/v1/ai/vision", payload).getString("description")
     }
 
@@ -49,12 +55,7 @@ object CloudAiClient {
     private fun request(context: Context, path: String, text: String, visualContext: String = ""): JSONObject {
         val license = LicenseManager.savedKey(context)
         if (license.isBlank()) throw IllegalStateException("License Key ကို အရင် Activate လုပ်ပါ။")
-        val payload = JSONObject()
-            .put("licenseKey", license)
-            .put("deviceId", LicenseManager.deviceId(context))
-            .put("text", text)
-            .put("visualContext", visualContext)
-            .toString()
+        val payload = JSONObject().put("licenseKey", license).put("deviceId", LicenseManager.deviceId(context)).put("text", text).put("visualContext", visualContext).toString()
         return postJson(path, payload)
     }
 
@@ -62,10 +63,7 @@ object CloudAiClient {
         var connection: HttpURLConnection? = null
         try {
             connection = (URL(LicenseManager.SERVER_URL.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 30_000
-                readTimeout = 180_000
-                doOutput = true
+                requestMethod = "POST"; connectTimeout = 30_000; readTimeout = 180_000; doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
             }
             connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
@@ -74,7 +72,7 @@ object CloudAiClient {
             val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
             if (status !in 200..299) {
                 val reason = json.optString("error", "HTTP $status")
-                throw IllegalStateException(when(reason) {
+                throw IllegalStateException(when (reason) {
                     "EXPIRED" -> "License သက်တမ်းကုန်သွားပါပြီ။"
                     "INVALID_OR_REVOKED" -> "License Key မမှန်ပါ သို့မဟုတ် ပိတ်ထားပါသည်။"
                     "DEVICE_NOT_ACTIVATED" -> "ဒီဖုန်းမှာ License မဖွင့်ရသေးပါ။"
@@ -82,9 +80,7 @@ object CloudAiClient {
                 })
             }
             return json
-        } finally {
-            connection?.disconnect()
-        }
+        } finally { connection?.disconnect() }
     }
 
     private fun splitText(text: String, maxChars: Int): List<String> {
