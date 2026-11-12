@@ -315,9 +315,11 @@ class MainActivity : Activity() {
             text = "ဖုန်း၏ TTS အသံအသစ်များ ထည့်သွင်းရန်"
             setOnClickListener {
                 try {
-                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    startActivity(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA))
+                    status.text = "TTS Voice Data ထည့်သွင်းရန် Settings ကို ဖွင့်ထားပါသည်။ Burmese / မြန်မာ အသံ Data ရှိမရှိ စစ်ဆေးပါ။"
                 } catch (_: Exception) {
-                    status.text = "Settings > Accessibility > Text-to-speech output ကို ဖွင့်ပါ။"
+                    status.text = "ဖုန်း Settings > Additional settings > Languages & input > Text-to-speech output ထဲဝင်ပြီး Burmese / မြန်မာ Voice Data ရှိမရှိ စစ်ဆေးပါ။"
+                    android.widget.Toast.makeText(this, status.text, android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }, matchWidth())
@@ -470,14 +472,26 @@ class MainActivity : Activity() {
 
     private fun requireLicense(action: () -> Unit) {
         status.text = "License အတည်ပြုနေပါသည်..."
+        android.widget.Toast.makeText(this, "License စစ်ဆေးနေပါသည်...", android.widget.Toast.LENGTH_SHORT).show()
         Thread {
             val result = LicenseManager.check(this)
             runOnUiThread {
                 if (result.valid) {
                     status.text = "License OK — ${result.plan}"
+                    android.widget.Toast.makeText(this, "License အတည်ပြုပြီးပါပြီ", android.widget.Toast.LENGTH_SHORT).show()
                     action()
                 } else {
-                    status.text = "အသုံးပြုခွင့်မရှိပါ: ${result.message} License Key ကို Activate လုပ်ပါ။"
+                    val message = when (result.message) {
+                        "LICENSE_REQUIRED" -> "License Key မထည့်ရသေးပါ။ အပေါ်ဘက်ရှိ Activate / Verify License မှာ Key ထည့်ပြီး Activate လုပ်ပါ။"
+                        else -> "အသုံးပြုခွင့်မရှိပါ: ${result.message}"
+                    }
+                    status.text = message
+                    android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("Hyper Recap AI — License")
+                        .setMessage(message)
+                        .setPositiveButton("OK", null)
+                        .show()
                 }
             }
         }.start()
