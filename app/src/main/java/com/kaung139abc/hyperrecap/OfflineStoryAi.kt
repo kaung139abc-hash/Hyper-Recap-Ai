@@ -20,6 +20,7 @@ object OfflineStoryAi {
         "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
     private const val MODEL_FILE = "qwen3-0.6b-q4_k_m.gguf"
     private const val MIN_MODEL_BYTES = 100L * 1024L * 1024L
+    private const val MAX_MODEL_BYTES = 800L * 1024L * 1024L
     private const val MIN_FREE_BYTES = 900L * 1024L * 1024L
     private const val CHUNK_CHARS = 2_200
 
@@ -148,7 +149,10 @@ object OfflineStoryAi {
     private fun ensureModel(context: Context, onProgress: (String) -> Unit): File {
         val directory = File(context.filesDir, "ai-models/qwen3-0.6b").apply { mkdirs() }
         val model = File(directory, MODEL_FILE)
-        if (model.isFile && model.length() >= MIN_MODEL_BYTES) return model
+        if (isValidModelFile(model)) return model
+        if (model.exists() && !model.delete()) {
+            throw IllegalStateException("ပျက်စီးနေသော Offline AI Model ဖိုင်ကို ဖယ်ရှားမရပါ။")
+        }
         if (directory.usableSpace < MIN_FREE_BYTES) {
             throw IllegalStateException("Offline Story AI အတွက် အနည်းဆုံး 900 MB နေရာလွတ် လိုအပ်ပါသည်။")
         }
@@ -173,8 +177,11 @@ object OfflineStoryAi {
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
-                        output.write(buffer, 0, count)
                         received += count
+                        if (received > MAX_MODEL_BYTES || (total > 0L && total > MAX_MODEL_BYTES)) {
+                            throw IllegalStateException("Offline AI Model ဖိုင်သည် 800 MB ကန့်သတ်ချက်ထက် ကြီးနေပါသည်။")
+                        }
+                        output.write(buffer, 0, count)
                         if (total > 0L) {
                             onProgress("Offline AI Model Download — ${(received * 100 / total).coerceIn(0, 100)}%")
                         } else {
@@ -184,14 +191,12 @@ object OfflineStoryAi {
                     output.fd.sync()
                 }
             }
-            if (partial.length() < MIN_MODEL_BYTES || (total > 0L && partial.length() != total)) {
-                throw IllegalStateException("Offline AI Model Download မပြည့်စုံပါ။")
+            if (partial.length() < MIN_MODEL_BYTES || partial.length() > MAX_MODEL_BYTES ||
+                (total > 0L && partial.length() != total)) {
+                throw IllegalStateException("Offline AI Model Download မပြည့်စုံပါ သို့မဟုတ် အရွယ်အစားမမှန်ပါ။")
             }
-            val magic = ByteArray(4)
-            FileInputStream(partial).use { input ->
-                if (input.read(magic) != 4 || String(magic, Charsets.US_ASCII) != "GGUF") {
-                    throw IllegalStateException("Download လုပ်ထားသော Model သည် GGUF ဖိုင်မဟုတ်ပါ။")
-                }
+            if (!isValidModelFile(partial)) {
+                throw IllegalStateException("Download လုပ်ထားသော Model သည် မှန်ကန်သော GGUF ဖိုင်မဟုတ်ပါ။")
             }
             if (model.exists()) model.delete()
             if (!partial.renameTo(model)) throw IllegalStateException("Offline AI Model ကို သိမ်းမရပါ။")
@@ -201,6 +206,18 @@ object OfflineStoryAi {
             throw error
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun isValidModelFile(file: File): Boolean {
+        if (!file.isFile || file.length() !in MIN_MODEL_BYTES..MAX_MODEL_BYTES) return false
+        return try {
+            FileInputStream(file).use { input ->
+                val magic = ByteArray(4)
+                input.read(magic) == 4 && String(magic, Charsets.US_ASCII) == "GGUF"
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 
