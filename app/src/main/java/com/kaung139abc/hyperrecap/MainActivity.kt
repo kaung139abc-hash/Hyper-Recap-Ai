@@ -1371,7 +1371,7 @@ class MainActivity : Activity() {
                 timeMs += intervalMs
             }
             if (batch.isNotEmpty()) {
-                val description = CloudAiClient.analyzeVideoFrames(this, batch.map { it.second })
+                val description = CloudAiClient.analyzeVideoFrames(this, batch.map { it.second }, batch.map { it.first })
                 batch.forEach { (at, _) -> notes.append("[${formatDuration(at)}] ") }
                 notes.append(description).append("\n")
                 analyzed += batch.size
