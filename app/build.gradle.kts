@@ -48,4 +48,6 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("commons-io:commons-io:2.17.0")
     implementation("androidx.media3:media3-transformer:1.8.0")
+    // MIT-licensed on-device llama.cpp inference runtime for downloadable GGUF models.
+    implementation("com.llamatik:core:2.2.2")
 }

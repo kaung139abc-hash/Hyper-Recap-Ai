@@ -885,8 +885,31 @@ class MainActivity : Activity() {
                 // Licensed users get story-focused generative synthesis and sampled visual context.
                 // Without a valid license or internet, the app safely falls back to the on-device draft.
                 var finalRecap = localDraft
-                var recapMode = "Local Offline Recap"
+                var recapMode = "Local Offline Extractive Recap"
                 var recapVisualContext = ""
+
+                // Try a genuinely generative on-device model first. Its GGUF weights
+                // are downloaded once; after that, this path runs without Internet.
+                try {
+                    runOnUiThread { status.text = "Offline Story AI Model ကို ပြင်ဆင်ပြီး ဇာတ်လမ်းကို အပိုင်းလိုက်နားလည်နေပါသည်..." }
+                    val timestampedTranscript = if (sourceCues.isNotEmpty()) {
+                        sourceCues.sortedBy { it.startMs }.joinToString("\n") {
+                            "[${formatDuration(it.startMs)}] ${it.text}"
+                        }
+                    } else source
+                    val onDeviceRecap = OfflineStoryAi.summarize(this, timestampedTranscript) { message ->
+                        runOnUiThread { status.text = message }
+                    }
+                    if (onDeviceRecap.isNotBlank()) {
+                        finalRecap = onDeviceRecap
+                        recapMode = "On-device Generative Story AI (Offline)"
+                    }
+                } catch (offlineAiError: Exception) {
+                    runOnUiThread {
+                        status.text = "Offline Generative Model မရနိုင်ပါ။ Extractive Offline Recap ကို ဆက်သုံးနေပါသည်..."
+                    }
+                }
+
                 val savedKey = LicenseManager.savedKey(this)
                 if (savedKey.isNotBlank()) {
                     var visualNotes = ""
