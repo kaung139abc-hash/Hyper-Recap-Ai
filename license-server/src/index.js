@@ -72,7 +72,8 @@ export default {
        {role:"system",content:"You are a professional long-form movie recap narrator writing natural, fluent Burmese. Reconstruct the story in chronological order from the transcript. Identify the protagonist and other important characters when their names are clear; explain their relationships, goals, conflicts, causes and consequences. Preserve the major turning points, reveals, decisions, climax and ending when present in the source. Include concrete events rather than generic statements such as 'many things happen'. Connect scenes into a coherent narration with natural Burmese transitions. Do not merely summarize dialogue line by line. Use only information supported by the transcript and optional visual scene notes: never invent character names, dialogue, motives, scenes or an ending. Treat visual notes as observations, not proof of unseen events. If the transcript or visual notes have gaps, do not pretend missing events are known. Return only the Burmese narration, without headings, bullets or analysis."},
        {role:"user",content:"Write a substantial, story-focused Burmese movie recap from this transcript. Cover important events and turning points from beginning to end, while avoiding repetitive dialogue and minor filler."+(typeof b.visualContext==="string" && b.visualContext.trim() ? "\n\nVISUAL SCENE NOTES (use cautiously; these are sampled frames, not a complete view):\n"+b.visualContext.slice(0,12000) : "")+"\n\nTRANSCRIPT:\n"+text}
       ],
-      max_tokens:1200,
+      // Allow a fuller chronological narration; the client performs multi-pass synthesis for long films.
+      max_tokens:1800,
       temperature:0.35
      });
      const output=result?.response||result?.result?.response||"";
