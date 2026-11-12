@@ -1191,10 +1191,14 @@ class MainActivity : Activity() {
                 if (sourceDurationMs <= 0L || narrationDurationMs <= 0L) {
                     throw IllegalStateException("Video/Narration ကြာချိန်ကို ဖတ်မရပါ။")
                 }
-                val clipCount = ((narrationDurationMs + 9_999L) / 10_000L)
+                // Base the fallback clip count on the actual source duration.
+                // Otherwise a source shorter than 10 seconds can produce a montage
+                // that ends before a longer narration has finished.
+                val targetClipMs = minOf(10_000L, sourceDurationMs).coerceAtLeast(1L)
+                val clipCount = ((narrationDurationMs + targetClipMs - 1L) / targetClipMs)
                     .coerceAtLeast(1L).coerceAtMost(600L).toInt()
                 val clipLengthMs = ((narrationDurationMs + clipCount - 1L) / clipCount)
-                    .coerceAtLeast(1_000L).coerceAtMost(sourceDurationMs)
+                    .coerceAtLeast(1L).coerceAtMost(sourceDurationMs)
                 for (index in 0 until clipCount) {
                     val remainingMs = narrationDurationMs - index.toLong() * clipLengthMs
                     val actualClipLengthMs = minOf(clipLengthMs, remainingMs)
