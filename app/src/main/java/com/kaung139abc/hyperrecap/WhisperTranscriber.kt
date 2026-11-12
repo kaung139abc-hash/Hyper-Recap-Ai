@@ -29,6 +29,8 @@ object WhisperTranscriber {
     private const val SAMPLE_RATE = 16_000
     private const val WINDOW_SECONDS = 28
     private const val OVERLAP_MS = 1_500L
+    private const val MAX_ARCHIVE_BYTES = 400L * 1024L * 1024L
+    private const val MAX_EXTRACTED_BYTES = 1_024L * 1024L * 1024L
 
     data class Segment(val startMs: Long, val endMs: Long, val text: String)
 
@@ -95,10 +97,17 @@ object WhisperTranscriber {
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
-                        output.write(buffer, 0, count)
                         received += count
+                        if (received > MAX_ARCHIVE_BYTES) {
+                            throw IllegalStateException("Whisper Model archive သည် သတ်မှတ်ထားသော အရွယ်အစားထက် ကြီးနေပါသည်။")
+                        }
+                        output.write(buffer, 0, count)
                         if (total > 0) onProgress("Whisper Model Download — ${(received * 100 / total).coerceIn(0, 100)}%")
                         else onProgress("Whisper Model Download — ${received / (1024 * 1024)} MB")
+                    }
+                    output.fd.sync()
+                    if (total > 0L && received != total) {
+                        throw IllegalStateException("Whisper Model Download မပြည့်စုံပါ။ (${received}/$total bytes)")
                     }
                 }
             }
@@ -115,6 +124,7 @@ object WhisperTranscriber {
         staging.mkdirs()
         try {
             onProgress("Whisper Model ကို ဖြည်နေပါသည်...")
+            var extractedBytes = 0L
             TarArchiveInputStream(
                 BZip2CompressorInputStream(BufferedInputStream(FileInputStream(archive)))
             ).use { tar ->
@@ -128,16 +138,29 @@ object WhisperTranscriber {
                     if (entry.isDirectory) {
                         output.mkdirs()
                     } else if (entry.isFile) {
+                        if (entry.size < 0L || extractedBytes > MAX_EXTRACTED_BYTES - entry.size) {
+                            throw IllegalStateException("Whisper Model archive ဖြည်ထားသော အရွယ်အစားသည် 1 GB ကျော်နေပါသည်။")
+                        }
                         output.parentFile?.mkdirs()
-                        FileOutputStream(output).use { tar.copyTo(it) }
+                        FileOutputStream(output).use { target ->
+                            val copied = tar.copyTo(target)
+                            if (copied != entry.size) {
+                                throw IllegalStateException("Whisper Model archive ထဲရှိ ဖိုင်တစ်ခု မပြည့်စုံပါ။")
+                            }
+                            extractedBytes += copied
+                        }
                     }
                 }
             }
             val actualDir = File(staging, MODEL_DIR)
             val source = if (actualDir.isDirectory) actualDir else staging
             val required = listOf("base-encoder.int8.onnx", "base-decoder.int8.onnx", "base-tokens.txt")
-            if (required.any { !File(source, it).isFile }) {
-                throw IllegalStateException("Whisper Model ထဲတွင် လိုအပ်သော ONNX ဖိုင်များ မတွေ့ပါ။")
+            val requiredFiles = required.map { File(source, it) }
+            if (requiredFiles.any { !it.isFile } ||
+                File(source, "base-encoder.int8.onnx").length() < 10L * 1024L * 1024L ||
+                File(source, "base-decoder.int8.onnx").length() < 10L * 1024L * 1024L ||
+                File(source, "base-tokens.txt").length() < 1_000L) {
+                throw IllegalStateException("Whisper Model ဖိုင်များ မပြည့်စုံပါ။ Model ကို ပြန်လည် Download လုပ်ပါ။")
             }
             modelDir.deleteRecursively()
             if (source == staging) {
