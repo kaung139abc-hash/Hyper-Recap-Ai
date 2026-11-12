@@ -23,8 +23,8 @@ android {
         applicationId = "com.kaung139abc.hyperrecap"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.7.0"
+        versionCode = 8
+        versionName = "0.8.0"
         // This app's on-device Whisper and llama.cpp runtimes target 64-bit Android.
         // Restrict native packaging to arm64 to avoid shipping three unused CPU builds.
         ndk {
