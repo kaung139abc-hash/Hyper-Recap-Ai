@@ -132,7 +132,7 @@ object CloudAiClient {
         // characters. Avoid leaving a tiny trailing fragment as a separate request.
         if (chunks.size > 1 && chunks.last().length < 30) {
             val tail = chunks.removeAt(chunks.lastIndex)
-            chunks[chunks.lastIndex] = chunks.last() + "\\n" + tail
+            chunks[chunks.lastIndex] = chunks.last() + "\n" + tail
         }
         return chunks
     }
