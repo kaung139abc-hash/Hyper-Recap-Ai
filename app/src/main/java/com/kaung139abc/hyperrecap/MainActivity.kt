@@ -264,7 +264,7 @@ class MainActivity : Activity() {
             setOnClickListener { requireLicense { generateCloudAiRecap() } }
         }, matchWidth())
         root.addView(Button(this).apply {
-            text = "English → Myanmar AI Translation (Internet လိုအပ်)"
+            text = "English → Myanmar AI Translation (Offline / API Key မလို)"
             setOnClickListener { requireLicense { translateTranscriptToMyanmar() } }
         }, matchWidth())
         root.addView(sectionTitle("05  •  RECAP RESULT & EXPORT"), matchWidth())
@@ -980,24 +980,31 @@ class MainActivity : Activity() {
 
     private fun translateTranscriptToMyanmar() {
         val source = transcriptInput.text.toString().trim()
-        if (source.length < 30) {
-            status.text = "ဘာသာပြန်ရန် English Transcript စာသား ထည့်ပါ။"
+        if (source.length < 20) {
+            status.text = "ဘာသာပြန်ရန် English Transcript စာသား အနည်းဆုံး စာလုံး ၂၀ လိုအပ်ပါသည်။"
             return
         }
-        status.text = "English → Myanmar AI Translation စတင်နေပါသည်။ Internet လိုအပ်သည်။"
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        status.text = "Offline English → Myanmar AI Translation စတင်နေပါသည်..."
         Thread {
             try {
-                val result = CloudAiClient.translateEnglishToMyanmar(this, source) { message ->
+                val result = OfflineStoryAi.translateToMyanmar(this, source) { message ->
                     runOnUiThread { status.text = message }
                 }
                 runOnUiThread {
                     transcriptInput.setText(result)
                     importedSrtCues = emptyList()
                     importedSrtSource = ""
-                    status.text = "မြန်မာဘာသာပြန်ပြီးပါပြီ။ ဘာသာပြန်စာသားကို ပြန်စစ်ပြီး Recap ထုတ်နိုင်ပါပြီ။"
+                    status.text = "✓ Offline မြန်မာဘာသာပြန်ပြီးပါပြီ။ Internet/API Key မလိုပါ။"
                 }
             } catch (e: Exception) {
-                runOnUiThread { status.text = "ဘာသာပြန်မအောင်မြင်ပါ: ${e.localizedMessage ?: "Server/Quota error"}" }
+                runOnUiThread {
+                    status.text = "Offline ဘာသာပြန်မအောင်မြင်ပါ: ${e.localizedMessage ?: "Model/RAM error"}"
+                }
+            } finally {
+                runOnUiThread {
+                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
             }
         }.start()
     }
