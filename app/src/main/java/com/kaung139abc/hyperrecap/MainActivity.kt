@@ -1289,7 +1289,11 @@ class MainActivity : Activity() {
                 // Very short source videos need more repeated clips to cover a long narration.
                 val targetClipMs = minOf(10_000L, sourceDurationMs).coerceAtLeast(1L)
                 val clipCount = ((narrationDurationMs + targetClipMs - 1L) / targetClipMs)
-                    .coerceAtLeast(1L).coerceAtMost(600L).toInt()
+                    .coerceAtLeast(1L).also { required ->
+                        if (required > 600L) {
+                            throw IllegalStateException("Narration အလွန်ရှည်ပြီး Video Scene 600 ပိုင်းထက် ပိုလိုအပ်နေပါသည်။ Recap ကို အပိုင်းခွဲပြီး Export လုပ်ပါ။")
+                        }
+                    }.toInt()
                 val chosen = (0 until clipCount).map { index ->
                     val cueIndex = if (clipCount <= cues.size) {
                         (index.toLong() * cues.size / clipCount).toInt()
@@ -1346,7 +1350,11 @@ class MainActivity : Activity() {
                 // that ends before a longer narration has finished.
                 val targetClipMs = minOf(10_000L, sourceDurationMs).coerceAtLeast(1L)
                 val clipCount = ((narrationDurationMs + targetClipMs - 1L) / targetClipMs)
-                    .coerceAtLeast(1L).coerceAtMost(600L).toInt()
+                    .coerceAtLeast(1L).also { required ->
+                        if (required > 600L) {
+                            throw IllegalStateException("Narration အလွန်ရှည်ပြီး Video Scene 600 ပိုင်းထက် ပိုလိုအပ်နေပါသည်။ Recap ကို အပိုင်းခွဲပြီး Export လုပ်ပါ။")
+                        }
+                    }.toInt()
                 val clipLengthMs = ((narrationDurationMs + clipCount - 1L) / clipCount)
                     .coerceAtLeast(1L).coerceAtMost(sourceDurationMs)
                 for (index in 0 until clipCount) {
