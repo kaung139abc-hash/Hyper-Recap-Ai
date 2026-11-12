@@ -1156,46 +1156,39 @@ class MainActivity : Activity() {
                 }
                 if (localDraft.isBlank()) throw IllegalStateException("Local Recap အလွတ်ဖြစ်နေပါသည်။")
 
-                // Licensed users get story-focused generative synthesis and sampled visual context.
-                // Without a valid license or internet, the app safely falls back to the on-device draft.
-                var finalRecap = localDraft
-                var recapMode = "Local Offline Extractive Recap"
-                // Visual evidence was extracted locally from sampled frames in the
-                // video-to-recap workflow; pass it into the final story synthesis.
-                var recapVisualContext = latestVisualContext.trim().take(2_200)
-
-                // Try a genuinely generative on-device model first. Its GGUF weights
-                // are downloaded once; after that, this path runs without Internet.
-                try {
-                    runOnUiThread { status.text = "Offline Story AI Model ကို ပြင်ဆင်ပြီး ဇာတ်လမ်းကို အပိုင်းလိုက်နားလည်နေပါသည်..." }
-                    val timestampedTranscript = if (sourceCues.isNotEmpty()) {
-                        sourceCues.sortedBy { it.startMs }.joinToString("\n") {
-                            "[${formatDuration(it.startMs)}] ${it.text}"
-                        }
-                    } else source
-                    val onDeviceRecap = OfflineStoryAi.summarize(
+                // Do not label an extractive transcript selection as an AI story recap.
+                // A successful AUTO RECAP must come from the on-device generative model.
+                val recapVisualContext = latestVisualContext.trim().take(2_200)
+                runOnUiThread {
+                    status.text = if (recapVisualContext.isNotBlank()) {
+                        "Offline Qwen AI — Transcript နှင့် ရုပ်ပုံအထောက်အထား ပေါင်းစပ်နေပါသည်..."
+                    } else {
+                        "Offline Qwen AI — Transcript မှ ဇာတ်လမ်းကို ပြန်လည်တည်ဆောက်နေပါသည်..."
+                    }
+                }
+                val timestampedTranscript = if (sourceCues.isNotEmpty()) {
+                    sourceCues.sortedBy { it.startMs }.joinToString("\n") {
+                        "[${formatDuration(it.startMs)}] ${it.text}"
+                    }
+                } else source
+                val result = try {
+                    OfflineStoryAi.summarize(
                         this,
                         timestampedTranscript,
                         visualContext = recapVisualContext
                     ) { message ->
                         runOnUiThread { status.text = message }
                     }
-                    if (onDeviceRecap.isNotBlank()) {
-                        finalRecap = onDeviceRecap
-                        recapMode = "On-device Generative Story AI (Offline)"
-                    }
                 } catch (offlineAiError: Exception) {
-                    runOnUiThread {
-                        status.text = "Offline Generative Model မရနိုင်ပါ။ Extractive Offline Recap ကို ဆက်သုံးနေပါသည်..."
-                    }
+                    throw IllegalStateException(
+                        "Qwen Local AI Recap မအောင်မြင်ပါ။ Extractive စာသားကို AI Recap အဖြစ် မပြသပါ။ အကြောင်းရင်း: ${offlineAiError.localizedMessage ?: offlineAiError.javaClass.simpleName}",
+                        offlineAiError
+                    )
                 }
-
-                // Recap generation is strictly on-device. Do not call Cloudflare,
-                // hosted LLMs, vision APIs, or require any API key for this workflow.
-                // The local Qwen model is downloaded once, then inference is offline.
-                if (finalRecap.isBlank()) finalRecap = localDraft
-                val result = finalRecap
-                val mode = recapMode
+                if (result.length < 80) {
+                    throw IllegalStateException("Qwen Local AI မှ ပြည့်စုံသော ဇာတ်လမ်း Recap မရရှိပါ။")
+                }
+                val mode = "On-device Generative Story AI (Offline)"
                 runOnUiThread {
                     latestRecap = result
                     latestHighlightCues = highlights
