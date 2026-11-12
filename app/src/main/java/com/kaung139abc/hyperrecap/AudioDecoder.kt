@@ -162,7 +162,7 @@ object AudioDecoder {
                 output.putShort(((unsigned - 128) shl 8).toShort())
             }
             4 -> while (input.remaining() >= 4) {
-                val value = input.float.coerceIn(-1f, 1f)
+                val value = input.getFloat().coerceIn(-1f, 1f)
                 output.putShort((value * 32767f).toInt().toShort())
             }
             21 -> while (input.remaining() >= 3) {
