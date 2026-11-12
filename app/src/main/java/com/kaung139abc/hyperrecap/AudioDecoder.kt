@@ -5,6 +5,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -23,10 +24,13 @@ object AudioDecoder {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         var wav: RandomAccessFile? = null
+        var sourceDescriptor: ParcelFileDescriptor? = null
         try {
-            context.contentResolver.openFileDescriptor(source, "r")?.use {
-                extractor.setDataSource(it.fileDescriptor)
-            } ?: throw IllegalStateException("Video ဖိုင်ဖွင့်မရပါ။")
+            // MediaExtractor may continue reading lazily after setDataSource returns.
+            // Keep the descriptor open until extraction and decoding have completely finished.
+            sourceDescriptor = context.contentResolver.openFileDescriptor(source, "r")
+                ?: throw IllegalStateException("Video ဖိုင်ဖွင့်မရပါ။")
+            extractor.setDataSource(sourceDescriptor.fileDescriptor)
 
             var audioTrack = -1
             var inputFormat: MediaFormat? = null
@@ -118,7 +122,13 @@ object AudioDecoder {
                 }
             }
 
+            if (sampleRate !in 8_000..192_000 || channels !in 1..8) {
+                throw IllegalStateException("Decoder မှ Audio format မမှန်ကန်ပါ: ${sampleRate}Hz / ${channels}ch")
+            }
             if (dataBytes == 0L) throw IllegalStateException("PCM အသံဒေတာ မရရှိပါ။")
+            if (dataBytes % (channels * 2L) != 0L) {
+                throw IllegalStateException("PCM အသံဒေတာသည် Sample Frame အပြည့်မဟုတ်ပါ။")
+            }
             if (dataBytes > 0xFFFFFFFFL - 36L) throw IllegalStateException("WAV ဖိုင်အရွယ်အစား ကန့်သတ်ချက် ကျော်နေပါသည်။")
             out.seek(0)
             out.writeBytes("RIFF")
@@ -142,6 +152,7 @@ object AudioDecoder {
             try { decoder?.stop() } catch (_: Exception) {}
             try { decoder?.release() } catch (_: Exception) {}
             try { extractor.release() } catch (_: Exception) {}
+            try { sourceDescriptor?.close() } catch (_: Exception) {}
             try { wav?.close() } catch (_: Exception) {}
         }
     }
