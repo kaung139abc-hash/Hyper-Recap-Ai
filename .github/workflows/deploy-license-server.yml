@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           # Keep this host identical to LicenseManager.SERVER_URL in the Android app.
-          BASE="https://kaung139abc.workers.dev"
+          BASE="https://hyper-recap-license.kaung139abc.workers.dev"
           curl --fail --silent --show-error "$BASE/health" | tee /tmp/health.json
           grep -q '"ok":true' /tmp/health.json
           grep -q '"databaseConfigured":true' /tmp/health.json
