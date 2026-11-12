@@ -35,6 +35,8 @@ export default {
   if(path==="/v1/ai/vision"){
    if(!env.AI) return json({error:"AI binding is not configured"},503);
    if(typeof b.licenseKey!=="string" || typeof b.deviceId!=="string" || !Array.isArray(b.frames) || b.frames.length<1 || b.frames.length>2) return json({error:"licenseKey, deviceId and 1-2 frames are required"},400);
+   const frameTimes=Array.isArray(b.frameTimesMs)?b.frameTimesMs:[];
+   if(frameTimes.length!==0 && (frameTimes.length!==b.frames.length || frameTimes.some(t=>!Number.isSafeInteger(t)||t<0))) return json({error:"frameTimesMs must contain one non-negative timestamp per frame"},400);
    const digest=await hash(b.licenseKey.trim().toUpperCase());
    const license=await env.DB.prepare("SELECT * FROM licenses WHERE key_hash=?").bind(digest).first();
    if(!license || license.status!=="active") return json({error:"INVALID_OR_REVOKED"},403);
@@ -42,9 +44,14 @@ export default {
    let devices=[]; try{devices=JSON.parse(license.devices_json||"[]")}catch{}
    if(!Array.isArray(devices) || !devices.includes(b.deviceId)) return json({error:"DEVICE_NOT_ACTIVATED"},403);
    try{
-    const content=[{type:"text",text:"Describe only visible, concrete events in these sequential movie frames. Infer scene continuity cautiously. Identify visible people only by visual role (for example, a man in a uniform), never invent names, dialogue, motives or events. Return concise Burmese scene notes, mentioning uncertainty where needed."}];
-    for(const frame of b.frames){
+    const content=[{type:"text",text:"Describe each movie frame separately in chronological order. Use the supplied timestamp labels to identify when each visible event occurs. Describe only visible, concrete events; infer scene continuity cautiously. Identify visible people only by visual role (for example, a man in a uniform), never invent names, dialogue, motives or events. Return concise Burmese scene notes with each timestamp, mentioning uncertainty where needed."}];
+    for(let i=0;i<b.frames.length;i++){
+     const frame=b.frames[i];
      if(typeof frame!=="string" || frame.length>55000 || !/^[A-Za-z0-9+/=]+$/.test(frame)) return json({error:"Invalid or oversized frame"},400);
+     if(frameTimes.length) {
+      const ms=frameTimes[i], minutes=Math.floor(ms/60000), seconds=Math.floor(ms%60000/1000);
+      content.push({type:"text",text:`FRAME ${i+1} TIMESTAMP: ${minutes}:${String(seconds).padStart(2,"0")}`});
+     }
      content.push({type:"image_url",image_url:{url:"data:image/jpeg;base64,"+frame}});
     }
     const result=await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct",{messages:[{role:"user",content}],max_tokens:500,temperature:0.2});
