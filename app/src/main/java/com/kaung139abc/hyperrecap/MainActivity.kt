@@ -1623,6 +1623,9 @@ class MainActivity : Activity() {
         status.text = "Whisper အတွက် Video အသံကို PCM ပြောင်းနေပါသည်..."
         Thread {
             val wav = File(cacheDir, "hyper_whisper_${System.currentTimeMillis()}.wav")
+            // If transcription succeeds, generateRecap() takes ownership of the
+            // screen-awake flag and clears it only after the long AI pass completes.
+            var handedOffToRecap = false
             try {
                 AudioDecoder.decodeToWav(this, sourceUri, wav) { message ->
                     runOnUiThread { status.text = message }
@@ -1635,6 +1638,8 @@ class MainActivity : Activity() {
                 }
                 val cues = segments.map { SrtTranscript.Cue(it.startMs, it.endMs, it.text) }
                 val transcript = cues.joinToString("\n") { it.text }
+                val shouldStartRecap = transcript.length >= 80
+                handedOffToRecap = shouldStartRecap
                 // Local-first workflow: the movie is understood through its full audio transcript.
                 // Do not upload sampled frames or depend on cloud vision for AUTO RECAP.
                 latestVisualContext = ""
@@ -1660,8 +1665,10 @@ class MainActivity : Activity() {
             } finally {
                 wav.delete()
                 transcriptionInProgress = false
-                runOnUiThread {
-                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                if (!handedOffToRecap) {
+                    runOnUiThread {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
                 }
             }
         }.start()
