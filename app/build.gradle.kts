@@ -57,4 +57,7 @@ dependencies {
     implementation("com.llamatik:library:1.10.1")
     // Bundled on-device image labeling model; frame analysis works offline without API keys.
     implementation("com.google.mlkit:image-labeling:17.0.9")
+
+    // JVM tests for deterministic transcript parsing and subtitle generation.
+    testImplementation("junit:junit:4.13.2")
 }
