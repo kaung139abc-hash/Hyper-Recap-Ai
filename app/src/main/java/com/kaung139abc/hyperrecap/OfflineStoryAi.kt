@@ -26,6 +26,7 @@ object OfflineStoryAi {
     @Volatile private var modelReady = false
     private val modelLock = Any()
 
+    @Synchronized
     fun summarize(
         context: Context,
         transcript: String,
@@ -36,51 +37,64 @@ object OfflineStoryAi {
         val model = ensureModel(context.applicationContext, onProgress)
         ensureRuntime(model, onProgress)
 
-        val chunks = splitTranscript(clean)
-        val evidenceSummaries = ArrayList<String>(chunks.size)
-        configureGeneration(180)
-        chunks.forEachIndexed { index, chunk ->
-            onProgress("Offline Story AI — ဇာတ်လမ်းအပိုင်း ${index + 1}/${chunks.size} ကို နားလည်နေသည်...")
-            val prompt = chatPrompt(
-                system = "You are a careful movie-story analyst. Understand events, characters, motivations, cause and effect, conflicts and turning points. Never invent events. Reply only in natural Burmese. If the source is English, translate its meaning into Burmese. /no_think",
-                user = "Analyze this chronological movie transcript segment. Preserve important names and relationships. Return 3 to 5 concise Burmese bullet points describing only events supported by the transcript.\n\nTRANSCRIPT:\n$chunk"
-            )
-            val result = LlamaBridge.generate(prompt).trim()
-            if (result.isNotBlank()) evidenceSummaries += result
-        }
-        if (evidenceSummaries.isEmpty()) throw IllegalStateException("Offline Story AI မှ အဖြေမရရှိပါ။")
-
-        // Hierarchical reduction keeps a 2+ hour transcript within the model's
-        // 4K-token context instead of concatenating every intermediate note.
-        var storyNotes = evidenceSummaries
-        var reductionRound = 1
-        while (storyNotes.sumOf { it.length } > 2_600 && reductionRound <= 4) {
-            val groups = groupNotes(storyNotes, 2_300)
-            val reduced = ArrayList<String>(groups.size)
-            groups.forEachIndexed { index, group ->
-                onProgress("Offline Story AI — ရှည်လျားသောဇာတ်လမ်းကို အဆင့်လိုက်ပေါင်းစပ်နေသည် ($reductionRound / $index)...")
+        try {
+            val chunks = splitTranscript(clean)
+            val evidenceSummaries = ArrayList<String>(chunks.size)
+            configureGeneration(180)
+            chunks.forEachIndexed { index, chunk ->
+                onProgress("Offline Story AI — ဇာတ်လမ်းအပိုင်း ${index + 1}/${chunks.size} ကို နားလည်နေသည်...")
                 val prompt = chatPrompt(
-                    system = "You are a precise Burmese story editor. Merge related events, preserve chronology, characters, motivations and cause-and-effect. Never invent details. /no_think",
-                    user = "Condense these chronological scene notes into 4 to 6 concise Burmese bullet points. Keep the major turning points and ending evidence.\n\nNOTES:\n$group"
+                    system = "You are a careful movie-story analyst. Understand events, characters, motivations, cause and effect, conflicts and turning points. Never invent events. Reply only in natural Burmese. If the source is English, translate its meaning into Burmese. /no_think",
+                    user = "Analyze this chronological movie transcript segment. Preserve important names and relationships. Return 3 to 5 concise Burmese bullet points describing only events supported by the transcript.\n\nTRANSCRIPT:\n$chunk"
                 )
-                val note = LlamaBridge.generate(prompt).trim()
-                if (note.isNotBlank()) reduced += note
+                val result = LlamaBridge.generate(prompt).trim()
+                if (result.isNotBlank()) evidenceSummaries += result
             }
-            if (reduced.isEmpty()) break
-            storyNotes = reduced
-            reductionRound++
+            if (evidenceSummaries.isEmpty()) throw IllegalStateException("Offline Story AI မှ အဖြေမရရှိပါ။")
+    
+            // Hierarchical reduction keeps a 2+ hour transcript within the model's
+            // 4K-token context instead of concatenating every intermediate note.
+            var storyNotes = evidenceSummaries
+            var reductionRound = 1
+            while (storyNotes.sumOf { it.length } > 2_600 && reductionRound <= 4) {
+                val groups = groupNotes(storyNotes, 2_300)
+                val reduced = ArrayList<String>(groups.size)
+                groups.forEachIndexed { index, group ->
+                    onProgress("Offline Story AI — ရှည်လျားသောဇာတ်လမ်းကို အဆင့်လိုက်ပေါင်းစပ်နေသည် ($reductionRound / $index)...")
+                    val prompt = chatPrompt(
+                        system = "You are a precise Burmese story editor. Merge related events, preserve chronology, characters, motivations and cause-and-effect. Never invent details. /no_think",
+                        user = "Condense these chronological scene notes into 4 to 6 concise Burmese bullet points. Keep the major turning points and ending evidence.\n\nNOTES:\n$group"
+                    )
+                    val note = LlamaBridge.generate(prompt).trim()
+                    if (note.isNotBlank()) reduced += note
+                }
+                if (reduced.isEmpty()) break
+                storyNotes = reduced
+                reductionRound++
+            }
+    
+            onProgress("Offline Story AI — ဇာတ်လမ်းအစ၊ အလယ်၊ အဆုံးကို ပေါင်းစပ်ရေးသားနေသည်...")
+            configureGeneration(520)
+            val finalPrompt = chatPrompt(
+                system = "You are a professional Burmese movie recap writer. Reconstruct one coherent story from chronological evidence. Explain the setup, key characters, motivations, major turning points, climax and ending. Keep cause-and-effect clear. Do not add unsupported details. Output fluent natural Burmese narration, not bullet points. /no_think",
+                user = "Write a coherent Burmese movie recap using all the following ordered scene summaries. Include the ending and avoid repeating events.\n\nSCENE SUMMARIES:\n" +
+                    storyNotes.joinToString("\n\n")
+            )
+            return LlamaBridge.generate(finalPrompt).trim().takeIf { it.length >= 80 }
+                ?: throw IllegalStateException("Offline Story AI ၏ နောက်ဆုံး Recap မပြည့်စုံပါ။")
         }
-
-        onProgress("Offline Story AI — ဇာတ်လမ်းအစ၊ အလယ်၊ အဆုံးကို ပေါင်းစပ်ရေးသားနေသည်...")
-        configureGeneration(520)
-        val finalPrompt = chatPrompt(
-            system = "You are a professional Burmese movie recap writer. Reconstruct one coherent story from chronological evidence. Explain the setup, key characters, motivations, major turning points, climax and ending. Keep cause-and-effect clear. Do not add unsupported details. Output fluent natural Burmese narration, not bullet points. /no_think",
-            user = "Write a coherent Burmese movie recap using all the following ordered scene summaries. Include the ending and avoid repeating events.\n\nSCENE SUMMARIES:\n" +
-                storyNotes.joinToString("\n\n")
-        )
-        return LlamaBridge.generate(finalPrompt).trim().takeIf { it.length >= 80 }
-            ?: throw IllegalStateException("Offline Story AI ၏ နောက်ဆုံး Recap မပြည့်စုံပါ။")
-    }
+    
+        } finally {
+            synchronized(modelLock) {
+                if (modelReady) {
+                    try {
+                        LlamaBridge.shutdown()
+                    } finally {
+                        modelReady = false
+                    }
+                }
+            }
+        }
 
     private fun groupNotes(notes: List<String>, maxChars: Int): List<String> {
         val groups = ArrayList<String>()

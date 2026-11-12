@@ -871,6 +871,8 @@ class MainActivity : Activity() {
         }
         status.text = "ဇာတ်လမ်း Transcript ကို စိစစ်ပြီး Recap ဖန်တီးနေပါသည်..."
         recapOutput.text = "AI Recap ပြင်ဆင်နေပါသည်။ ခဏစောင့်ပါ..."
+        // Keep the screen awake during first-time model download and long local inference.
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Thread {
             try {
                 val sourceCues = importedSrtCues
@@ -962,6 +964,10 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 runOnUiThread {
                     status.text = "Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Processing error"}"
+                }
+            } finally {
+                runOnUiThread {
+                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
         }.start()
