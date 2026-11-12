@@ -1278,6 +1278,7 @@ class MainActivity : Activity() {
         exportNarratedMp4(destination, listOf(narrationWav))
 
     /** Export one or more narration tracks in order; commercial TTS is chunked to API limits. */
+    @OptIn(UnstableApi::class)
     private fun exportNarratedMp4(destination: Uri, narrationFiles: List<File>) {
         val source = selectedVideoUri
         if (source == null || narrationFiles.isEmpty() ||
