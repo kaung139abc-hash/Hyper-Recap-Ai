@@ -959,43 +959,9 @@ class MainActivity : Activity() {
                     }
                 }
 
-                val savedKey = LicenseManager.savedKey(this)
-                if (savedKey.isNotBlank()) {
-                    var visualNotes = ""
-                    val video = selectedVideoUri
-                    if (video != null) {
-                        try {
-                            runOnUiThread { status.text = "AI ရုပ်ပုံနားလည်မှု — ဇာတ်လမ်းတစ်လျှောက် Scene များကို စိစစ်နေပါသည်..." }
-                            visualNotes = analyzeVideoFrames(video) { message -> runOnUiThread { status.text = message } }
-                        } catch (visionError: Exception) {
-                            // Vision is an enhancement, not a blocker for transcript-based generative recap.
-                            runOnUiThread { status.text = "ရုပ်ပုံ AI မရနိုင်ပါ။ Transcript ကိုအခြေခံပြီး Generative Recap ဆက်လုပ်နေပါသည်..." }
-                        }
-                    }
-                    recapVisualContext = visualNotes
-                    try {
-                        runOnUiThread { status.text = "Generative AI က ဇာတ်လမ်းအစမှ အဆုံးအထိ မြန်မာ Recap ရေးသားနေပါသည်..." }
-                        // Preserve original Whisper/SRT timestamps for the generative model.
-                        // This helps it reconstruct the movie timeline and avoids treating
-                        // dialogue from separate scenes as one continuous event.
-                        val aiTranscript = if (sourceCues.isNotEmpty()) {
-                            sourceCues.sortedBy { it.startMs }.joinToString("\n") {
-                                "[${formatDuration(it.startMs)}] ${it.text}"
-                            }
-                        } else source
-                        finalRecap = CloudAiClient.generateBurmeseRecap(this, aiTranscript, visualNotes) { message ->
-                            runOnUiThread { status.text = message }
-                        }
-                        if (finalRecap.isNotBlank()) {
-                            recapMode = if (visualNotes.isNotBlank()) "Cloud Generative AI + Visual Scene Analysis"
-                                else "Cloud Generative AI (Transcript-based)"
-                        }
-                    } catch (cloudError: Exception) {
-                        runOnUiThread {
-                            status.text = "Generative AI မရနိုင်သဖြင့် Offline Recap သို့ ပြောင်းနေပါသည်..."
-                        }
-                    }
-                }
+                // Recap generation is strictly on-device. Do not call Cloudflare,
+                // hosted LLMs, vision APIs, or require any API key for this workflow.
+                // The local Qwen model is downloaded once, then inference is offline.
                 if (finalRecap.isBlank()) finalRecap = localDraft
                 val result = finalRecap
                 val mode = recapMode
