@@ -942,8 +942,8 @@ class MainActivity : Activity() {
             status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
             return
         }
-        if (tts == null || availableVoices.isEmpty()) {
-            status.text = "အသုံးပြုနိုင်သော Voice မရှိသေးပါ။"
+        if (tts == null || availableVoices.isEmpty() || tts?.voice?.locale?.language != "my") {
+            status.text = "Offline မြန်မာ Voice ကို ရွေးချယ်ပြီးမှ အသံဖိုင် သိမ်းနိုင်ပါသည်။"
             return
         }
         val saveIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -996,13 +996,14 @@ class MainActivity : Activity() {
     private fun finishRecapAudioExport() {
         val destination = pendingAudioUri ?: return
         val merged = pendingAudioFile ?: return
+        val chunkCount = pendingAudioChunks.size
         Thread {
             try {
                 mergeNarrationWavChunks(pendingAudioChunkFiles, merged)
                 contentResolver.openOutputStream(destination)?.use { output ->
                     merged.inputStream().use { input -> input.copyTo(output) }
                 } ?: throw IllegalStateException("Output stream unavailable")
-                runOnUiThread { status.text = "✓ Recap WAV အသံဖိုင် အပိုင်းအားလုံးကို ပေါင်းပြီး သိမ်းပြီးပါပြီ။" }
+                runOnUiThread { status.text = "✓ Recap WAV အသံဖိုင် $chunkCount ပိုင်းကို ပေါင်းပြီး သိမ်းပြီးပါပြီ။" }
             } catch (e: Exception) {
                 runOnUiThread { status.text = "အသံဖိုင် သိမ်းမရပါ: ${e.localizedMessage ?: "Error"}" }
             } finally {
@@ -1335,7 +1336,7 @@ class MainActivity : Activity() {
                 }
                 if (whitespaceCut > offset) hardEnd = whitespaceCut
             }
-            val chunk = clusters.subList(offset, hardEnd).joinToString("").trim()
+            val chunk = clusters.subList(offset, hardEnd).joinToString("")
             if (chunk.isNotBlank()) chunks += chunk
             offset = hardEnd
         }
