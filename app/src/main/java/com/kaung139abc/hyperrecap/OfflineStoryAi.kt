@@ -115,6 +115,53 @@ object OfflineStoryAi {
         }
     }
 
+    /**
+     * Translate text to Burmese entirely on-device using the same Apache-2.0
+     * Qwen GGUF model as the recap pipeline. Translation is chunked to keep
+     * memory/context bounded for long subtitle files.
+     */
+    @Synchronized
+    fun translateToMyanmar(
+        context: Context,
+        source: String,
+        onProgress: (String) -> Unit = {}
+    ): String {
+        val clean = source.trim()
+        require(clean.length >= 20) { "ဘာသာပြန်ရန် စာသား မလုံလောက်ပါ။" }
+        val model = ensureModel(context.applicationContext, onProgress)
+        ensureRuntime(model, context.applicationContext, onProgress)
+        try {
+            val chunks = splitTranscript(clean)
+            if (chunks.isEmpty()) throw IllegalStateException("ဘာသာပြန်စာသားကို အပိုင်းခွဲမရပါ။")
+            configureGeneration(900)
+            val translated = ArrayList<String>(chunks.size)
+            chunks.forEachIndexed { index, chunk ->
+                if (Thread.currentThread().isInterrupted) {
+                    throw InterruptedException("Offline ဘာသာပြန်မှုကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
+                }
+                onProgress("Offline English → Myanmar Translation — ${index + 1}/${chunks.size}")
+                val prompt = chatPrompt(
+                    system = "You are a professional English-to-Burmese translator. Translate faithfully into natural, fluent Myanmar Burmese. Preserve every fact, name, number, dialogue meaning and paragraph order. Do not summarize, explain, omit, or add content. Output only the Burmese translation. /no_think",
+                    user = "Translate the following text into Myanmar Burmese. Keep the original meaning and all details:
+
+$chunk"
+                )
+                val result = LlamaBridge.generate(prompt).trim()
+                if (result.isBlank()) throw IllegalStateException("ဘာသာပြန်အပိုင်း ${index + 1} မှ အဖြေမရပါ။")
+                translated += result
+            }
+            return translated.joinToString("
+
+")
+        } finally {
+            synchronized(modelLock) {
+                if (modelReady) {
+                    try { LlamaBridge.shutdown() } finally { modelReady = false }
+                }
+            }
+        }
+    }
+
     private fun groupNotes(notes: List<String>, maxChars: Int): List<String> {
         val groups = ArrayList<String>()
         val current = StringBuilder()
