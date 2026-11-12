@@ -221,6 +221,7 @@ object WhisperTranscriber {
 
                     if (hasUsableAlignment) {
                         val aligned = mutableListOf<Segment>()
+                        val emitFrom = if (startMs == 0L) 0L else overlapMs
                         var groupText = StringBuilder()
                         var groupStart = Long.MAX_VALUE
                         var groupEnd = Long.MIN_VALUE
@@ -229,7 +230,6 @@ object WhisperTranscriber {
                             val value = groupText.toString().trim()
                             // The overlap gives Whisper context across window boundaries.
                             // Emit only the portion not already covered by the preceding window.
-                            val emitFrom = if (startMs == 0L) 0L else overlapMs
                             val clippedStart = maxOf(groupStart, emitFrom)
                             if (value.isNotBlank() && groupEnd > clippedStart) {
                                 aligned += Segment(
@@ -247,7 +247,7 @@ object WhisperTranscriber {
                             val token = tokenTexts[tokenIndex]
                             val relativeStart = (tokenStarts[tokenIndex] * 1000f).toLong()
                             val duration = (tokenDurations[tokenIndex].coerceAtLeast(0f) * 1000f).toLong()
-                            if (token.isBlank() || relativeStart < 0L) continue
+                            if (token.isBlank() || relativeStart < emitFrom) continue
                             val absoluteStart = relativeStart.coerceIn(0L, endMs - startMs)
                             val absoluteEnd = (relativeStart + duration).coerceIn(absoluteStart, endMs - startMs)
                             val nextText = groupText.toString() + token
