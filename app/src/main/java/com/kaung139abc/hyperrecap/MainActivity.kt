@@ -1127,7 +1127,10 @@ class MainActivity : Activity() {
                 }
                 // Match montage length to narration length. Reuse the selected story
                 // highlights when the narration is longer than the available cue count.
-                val clipCount = ((narrationDurationMs + 9_999L) / 10_000L)
+                // Keep individual source clips within the source video's duration.
+                // Very short source videos need more repeated clips to cover a long narration.
+                val targetClipMs = minOf(10_000L, sourceDurationMs).coerceAtLeast(1L)
+                val clipCount = ((narrationDurationMs + targetClipMs - 1L) / targetClipMs)
                     .coerceAtLeast(1L).coerceAtMost(600L).toInt()
                 val chosen = (0 until clipCount).map { index ->
                     val cueIndex = if (clipCount <= cues.size) {
