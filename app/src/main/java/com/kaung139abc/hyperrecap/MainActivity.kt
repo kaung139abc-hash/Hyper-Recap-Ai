@@ -1140,19 +1140,21 @@ class MainActivity : Activity() {
                 riffSize < 4L || riffSize > input.length() - 8L) {
                 throw IllegalStateException("TTS WAV ဖိုင်ပုံစံ မမှန်ပါ။")
             }
+            val riffEnd = 8L + riffSize
             var format: ByteArray? = null
             var channels = 0
             var sampleRate = 0
+            var blockAlign = 0
             var bits = 0
             var dataOffset = -1L
             var dataSize = -1L
-            while (input.filePointer + 8L <= input.length()) {
+            while (input.filePointer + 8L <= riffEnd) {
                 val idBytes = ByteArray(4).also(input::readFully)
                 val id = String(idBytes, Charsets.US_ASCII)
                 val size = readWavUInt32(input)
                 val chunkStart = input.filePointer
                 val chunkEnd = chunkStart + size + (size and 1L)
-                if (chunkEnd < chunkStart || chunkEnd > input.length()) {
+                if (chunkEnd < chunkStart || chunkEnd > riffEnd || chunkEnd > input.length()) {
                     throw IllegalStateException("WAV chunk အရွယ်အစား မမှန်ပါ။")
                 }
                 if (id == "fmt ") {
@@ -1164,7 +1166,7 @@ class MainActivity : Activity() {
                     channels = buffer.short.toInt() and 0xffff
                     sampleRate = buffer.int
                     buffer.int // byte rate
-                    buffer.short // block align
+                    blockAlign = buffer.short.toInt() and 0xffff
                     bits = buffer.short.toInt() and 0xffff
                     if (encoding != 1) throw IllegalStateException("PCM WAV အသံသာ ပေါင်းစပ်နိုင်ပါသည်။")
                     format = fmt
@@ -1177,7 +1179,8 @@ class MainActivity : Activity() {
             }
             val fmt = format ?: throw IllegalStateException("WAV fmt chunk မတွေ့ပါ။")
             if (dataOffset < 0L || dataSize <= 0L || dataSize > input.length() - dataOffset ||
-                channels !in 1..2 || sampleRate !in 8_000..192_000 || bits != 16) {
+                channels !in 1..2 || sampleRate !in 8_000..192_000 || bits != 16 ||
+                blockAlign != channels * 2 || dataSize % blockAlign.toLong() != 0L) {
                 throw IllegalStateException("ပံ့ပိုးမထားသော သို့မဟုတ် မပြည့်စုံသော PCM WAV ဖြစ်ပါသည်။")
             }
             return NarrationWavPart(dataOffset, dataSize, fmt, channels, sampleRate, bits)
