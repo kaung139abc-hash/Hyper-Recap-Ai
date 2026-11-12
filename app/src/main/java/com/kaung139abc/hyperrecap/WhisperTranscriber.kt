@@ -28,7 +28,7 @@ object WhisperTranscriber {
     private const val MODEL_DIR = "sherpa-onnx-whisper-base"
     private const val SAMPLE_RATE = 16_000
     private const val WINDOW_SECONDS = 28
-    private const val OVERLAP_SECONDS = 1.5
+    private const val OVERLAP_MS = 1_500L
 
     data class Segment(val startMs: Long, val endMs: Long, val text: String)
 
@@ -176,7 +176,7 @@ object WhisperTranscriber {
 
         val segments = mutableListOf<Segment>()
         val windowMs = WINDOW_SECONDS * 1000L
-        val overlapMs = OVERLAP_SECONDS * 1000L
+        val overlapMs = OVERLAP_MS
         var startMs = 0L
         var index = 0
         RandomAccessFile(wav, "r").use { file ->
