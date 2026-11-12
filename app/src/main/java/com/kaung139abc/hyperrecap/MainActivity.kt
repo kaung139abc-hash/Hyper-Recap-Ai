@@ -401,7 +401,33 @@ class MainActivity : Activity() {
         val header = children.subList(0, firstSection)
         val tail = children.subList(tailStart, children.size)
         root.removeAllViews()
-        (header + sections.flatten() + tail).forEach { root.addView(it) }
+        header.forEach { root.addView(it) }
+
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+        sections.forEachIndexed { index, section ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(8), dp(12), dp(10))
+                background = android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(0xFF111B2E.toInt(), 0xFF0D1728.toInt())
+                ).apply {
+                    cornerRadius = dp(21).toFloat()
+                    setStroke(dp(1).coerceAtLeast(1),
+                        if (index == 0) 0xFF3B7181.toInt() else 0xFF293957.toInt())
+                }
+                elevation = dp(if (index == 0) 5 else 2).toFloat()
+            }
+            section.forEach { card.addView(it) }
+            root.addView(card, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(13)
+            })
+        }
+        tail.forEach { root.addView(it) }
     }
 
     private fun applyPremiumTheme(root: LinearLayout) {
