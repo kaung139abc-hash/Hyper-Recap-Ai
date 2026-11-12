@@ -59,28 +59,57 @@ object CloudAiClient {
         return postJson(path, payload)
     }
 
+    /**
+     * Cloudflare AI can briefly return 429/5xx while its inference capacity is busy.
+     * Retry only transient failures; never retry license/authentication or bad-input errors.
+     */
     private fun postJson(path: String, payload: String): JSONObject {
-        var connection: HttpURLConnection? = null
-        try {
-            connection = (URL(LicenseManager.SERVER_URL.trimEnd('/') + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"; connectTimeout = 30_000; readTimeout = 180_000; doOutput = true
-                setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            }
-            connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
-            if (status !in 200..299) {
+        val url = URL(LicenseManager.SERVER_URL.trimEnd('/') + path)
+        var lastError: Exception? = null
+        for (attempt in 0..2) {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 30_000
+                    readTimeout = 180_000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                }
+                connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                val status = connection.responseCode
+                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
+                if (status in 200..299) return json
+
                 val reason = json.optString("error", "HTTP $status")
-                throw IllegalStateException(when (reason) {
-                    "EXPIRED" -> "License သက်တမ်းကုန်သွားပါပြီ။"
-                    "INVALID_OR_REVOKED" -> "License Key မမှန်ပါ သို့မဟုတ် ပိတ်ထားပါသည်။"
-                    "DEVICE_NOT_ACTIVATED" -> "ဒီဖုန်းမှာ License မဖွင့်ရသေးပါ။"
-                    else -> reason
-                })
+                if (status == 429 || status in 500..599) {
+                    lastError = IllegalStateException(reason)
+                    if (attempt < 2) {
+                        val retryAfter = connection.getHeaderField("Retry-After")?.toLongOrNull()
+                        val delayMs = (retryAfter?.times(1000L) ?: (1_000L shl attempt)).coerceIn(500L, 8_000L)
+                        Thread.sleep(delayMs)
+                        continue
+                    }
+                } else {
+                    throw IllegalStateException(when (reason) {
+                        "EXPIRED" -> "License သက်တမ်းကုန်သွားပါပြီ။"
+                        "INVALID_OR_REVOKED" -> "License Key မမှန်ပါ သို့မဟုတ် ပိတ်ထားပါသည်။"
+                        "DEVICE_NOT_ACTIVATED" -> "ဒီဖုန်းမှာ License မဖွင့်ရသေးပါ။"
+                        else -> reason
+                    })
+                }
+            } catch (e: java.io.IOException) {
+                lastError = e
+                if (attempt < 2) Thread.sleep(1_000L shl attempt)
+            } finally {
+                connection?.disconnect()
             }
-            return json
-        } finally { connection?.disconnect() }
+        }
+        throw IllegalStateException(
+            "AI Server ကို ဆက်သွယ်မရသေးပါ။ ခဏစောင့်ပြီး ပြန်ကြိုးစားပါ။",
+            lastError
+        )
     }
 
     private fun splitText(text: String, maxChars: Int): List<String> {
