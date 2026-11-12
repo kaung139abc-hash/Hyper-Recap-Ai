@@ -848,35 +848,57 @@ class MainActivity : Activity() {
             status.text = "Transcript စာသား အနည်းဆုံး စာလုံး ၈၀ ခန့် လိုအပ်ပါသည်။"
             return
         }
-        // Fully on-device recap: no cloud AI calls and no video-frame uploads.
-        status.text = "ဖုန်းထဲမှာပဲ Video အသံစာသားကို အစဉ်လိုက် Local Recap လုပ်နေပါသည်..."
-        recapOutput.text = "Local Recap ဖန်တီးနေပါသည်။ ခဏစောင့်ပါ..."
+        status.text = "ဇာတ်လမ်း Transcript ကို စိစစ်ပြီး Recap ဖန်တီးနေပါသည်..."
+        recapOutput.text = "AI Recap ပြင်ဆင်နေပါသည်။ ခဏစောင့်ပါ..."
         Thread {
             try {
-                // Use source-timed transcript moments so the exported recap is a short highlight montage,
-                // not the entire original movie with narration laid over it.
                 val sourceCues = importedSrtCues
                 val highlights = if (sourceCues.isNotEmpty()) SrtTranscript.summarize(sourceCues, 12) else emptyList()
-                val generated = if (highlights.isNotEmpty()) {
+                val localDraft = if (highlights.isNotEmpty()) {
                     highlights.joinToString("\n\n") { it.text }
                 } else {
                     OfflineRecap.summarize(source, 12)
                 }
-                if (generated.isBlank()) throw IllegalStateException("Local Recap အလွတ်ဖြစ်နေပါသည်။")
+                if (localDraft.isBlank()) throw IllegalStateException("Local Recap အလွတ်ဖြစ်နေပါသည်။")
+
+                // Licensed users get story-focused generative synthesis and sampled visual context.
+                // Without a valid license or internet, the app safely falls back to the on-device draft.
+                var finalRecap = localDraft
+                var recapMode = "Local Offline Recap"
+                val savedKey = LicenseManager.savedKey(this)
+                if (savedKey.isNotBlank()) {
+                    try {
+                        val video = selectedVideoUri
+                        val visualNotes = if (video != null) {
+                            runOnUiThread { status.text = "AI ရုပ်ပုံနားလည်မှု — ဇာတ်လမ်းတစ်လျှောက် Scene များကို စိစစ်နေပါသည်..." }
+                            analyzeVideoFrames(video) { message -> runOnUiThread { status.text = message } }
+                        } else ""
+                        runOnUiThread { status.text = "Generative AI က ဇာတ်လမ်းအစမှ အဆုံးအထိ မြန်မာ Recap ရေးသားနေပါသည်..." }
+                        finalRecap = CloudAiClient.generateBurmeseRecap(this, source, visualNotes) { message ->
+                            runOnUiThread { status.text = message }
+                        }
+                        if (finalRecap.isNotBlank()) recapMode = "Cloud Generative AI + Visual Scene Analysis"
+                    } catch (cloudError: Exception) {
+                        runOnUiThread {
+                            status.text = "Cloud AI မရနိုင်သဖြင့် Offline Recap သို့ ပြောင်းနေပါသည်..."
+                        }
+                    }
+                }
+                if (finalRecap.isBlank()) finalRecap = localDraft
+                val result = finalRecap
+                val mode = recapMode
                 runOnUiThread {
-                    latestRecap = generated
+                    latestRecap = result
                     latestHighlightCues = highlights
-                    latestSrt = SubtitleDraft.fromNarration(generated)
-                    recapOutput.text = generated
-                    status.text = if (highlights.isNotEmpty())
-                        "✓ Local Recap ပြီးပါပြီ။ ဇာတ်လမ်းတစ်လျှောက်မှ အရေးကြီးအချိန် ၁၂ ခုအထိ ရွေးပြီး Narrated Highlight MP4 ထုတ်နိုင်ပါသည်။"
-                    else
-                        "✓ Local Transcript Recap ပြီးပါပြီ။ အချိန်မှတ်တမ်းမရှိသဖြင့် မူရင်း Video အပြည့်ကို အသုံးပြုမည်။"
+                    latestVisualContext = ""
+                    latestSrt = SubtitleDraft.fromNarration(result)
+                    recapOutput.text = result
+                    status.text = "✓ $mode ပြီးပါပြီ။"
                     requestAutoNarratedMp4Destination()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    status.text = "Local Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Processing error"}"
+                    status.text = "Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Processing error"}"
                 }
             }
         }.start()
