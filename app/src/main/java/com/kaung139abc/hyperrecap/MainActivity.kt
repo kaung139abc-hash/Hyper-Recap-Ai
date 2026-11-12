@@ -368,93 +368,120 @@ class MainActivity : Activity() {
     private fun applyPremiumTheme(root: LinearLayout) {
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
-        val violet = 0xFF8B7CFF.toInt()
-        val mint = 0xFF20C9B5.toInt()
-        val panel = 0xFF151D30.toInt()
-        val muted = 0xFFAAB6D0.toInt()
+        val violet = 0xFF9A8CFF.toInt()
+        val mint = 0xFF39E6CE.toInt()
+        val muted = 0xFF9EACC8.toInt()
+        val panel = 0xFF151F34.toInt()
+        val border = 0xFF2D3C5B.toInt()
 
-        fun rounded(fill: Int, stroke: Int, radius: Float = 18f) =
+        fun shape(fill: Int, stroke: Int, radius: Int = 18) =
             android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dp(radius.toInt()).toFloat()
+                cornerRadius = dp(radius).toFloat()
                 setColor(fill)
                 setStroke(dp(1).coerceAtLeast(1), stroke)
             }
 
-        root.setPadding(dp(18), dp(26), dp(18), dp(28))
-        root.setBackgroundColor(0xFF090E1B.toInt())
+        root.setPadding(dp(18), dp(22), dp(18), dp(34))
+        root.setBackgroundColor(0xFF080D19.toInt())
         root.clipToPadding = false
 
-        // Brand header is a compact logo card; keep its artwork and typography untouched.
-        val brandHeader = root.getChildAt(0) as? LinearLayout
-        brandHeader?.elevation = dp(3).toFloat()
-        val title = (brandHeader?.getChildAt(1) as? LinearLayout)?.getChildAt(0) as? TextView
-        title?.apply {
-            textSize = 23f
-            setTextColor(0xFFC5BCFF.toInt())
-            setPadding(0, 0, 0, dp(3))
+        val brand = root.getChildAt(0) as? LinearLayout
+        brand?.apply {
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF202B4B.toInt(), 0xFF171D35.toInt(), 0xFF142B38.toInt())
+            ).apply {
+                cornerRadius = dp(24).toFloat()
+                setStroke(dp(1), 0xFF53628D.toInt())
+            }
+            elevation = dp(7).toFloat()
+            setPadding(dp(14), dp(15), dp(14), dp(15))
         }
-        val tagline = (brandHeader?.getChildAt(1) as? LinearLayout)?.getChildAt(1) as? TextView
-        tagline?.setTextColor(muted)
+        val brandTitle = (brand?.getChildAt(1) as? LinearLayout)?.getChildAt(0) as? TextView
+        brandTitle?.apply {
+            textSize = 22f
+            setTextColor(0xFFD8D1FF.toInt())
+            letterSpacing = 0.045f
+        }
+        val tagline = (brand?.getChildAt(1) as? LinearLayout)?.getChildAt(1) as? TextView
+        tagline?.apply { setTextColor(0xFFB6C5E0.toInt()); textSize = 10.5f }
 
         fun style(view: View) {
             when (view) {
                 is Button -> {
                     val caption = view.text?.toString().orEmpty()
-                    val primary = caption.contains("Activate") ||
-                        caption.contains("Generate") ||
-                        caption.contains("ရွေးရန်") ||
-                        caption.contains("Download") ||
-                        caption.contains("Translation") ||
-                        caption.contains("Recap ဖတ်ရန်") ||
-                        caption.contains("Generate Offline")
-                    view.background = rounded(
-                        if (primary) 0xFF5144B8.toInt() else 0xFF1A263D.toInt(),
-                        if (primary) mint else 0xFF354565.toInt(),
-                        15f
-                    )
+                    val primary = caption.contains("AUTO RECAP") ||
+                        caption.contains("ဖုန်းထဲက Video ရွေးရန်") ||
+                        caption.contains("Activate") ||
+                        caption.contains("Narrated") ||
+                        caption.contains("MP4 ထုတ်ရန်") ||
+                        caption.contains("Recap ဖတ်ရန်")
+                    val colors = if (primary)
+                        intArrayOf(0xFF6758D8.toInt(), 0xFF3D8F9A.toInt())
+                    else intArrayOf(0xFF202C45.toInt(), 0xFF172237.toInt())
+                    view.background = android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, colors
+                    ).apply {
+                        cornerRadius = dp(15).toFloat()
+                        setStroke(dp(1), if (primary) 0xFF61E4D1.toInt() else border)
+                    }
                     view.backgroundTintList = null
                     view.setTextColor(0xFFF7F8FF.toInt())
-                    view.textSize = 13.5f
+                    view.textSize = if (primary) 14.5f else 13.2f
                     view.typeface = android.graphics.Typeface.create(
                         "sans-serif-medium", android.graphics.Typeface.NORMAL
                     )
                     view.isAllCaps = false
-                    view.minHeight = dp(50)
-                    view.setPadding(dp(15), dp(10), dp(15), dp(10))
-                    view.elevation = dp(2).toFloat()
+                    view.minHeight = dp(if (primary) 54 else 48)
+                    view.setPadding(dp(15), dp(11), dp(15), dp(11))
+                    view.elevation = dp(if (primary) 4 else 1).toFloat()
                     (view.layoutParams as? LinearLayout.LayoutParams)?.let {
-                        it.bottomMargin = dp(8)
+                        it.bottomMargin = dp(9)
+                        it.topMargin = dp(2)
                         view.layoutParams = it
                     }
                 }
                 is EditText -> {
-                    view.background = rounded(0xFF151E31.toInt(), 0xFF46577A.toInt(), 14f)
+                    view.background = shape(0xFF111A2C.toInt(), 0xFF405477.toInt(), 14)
                     view.setTextColor(0xFFF5F7FF.toInt())
-                    view.setHintTextColor(0xFF7F8BA7.toInt())
+                    view.setHintTextColor(0xFF7F8EAB.toInt())
                     view.textSize = 14f
-                    view.setPadding(dp(15), dp(13), dp(15), dp(13))
+                    view.setPadding(dp(15), dp(14), dp(15), dp(14))
                     view.backgroundTintList = null
                 }
-                is TextView -> {
-                    if (view.textSize >= 18f) {
-                        view.setTypeface(android.graphics.Typeface.create(
-                            "sans-serif-bold", android.graphics.Typeface.NORMAL
-                        ))
-                        view.setTextColor(if (view.text.toString().contains("HYPER")) 0xFFC5BCFF.toInt() else 0xFF83E6D8.toInt())
-                        view.setPadding(0, dp(16), 0, dp(9))
-                    } else if (view !== title) {
-                        view.setTextColor(if (view.text.toString().contains("မရွေးရသေး")) 0xFFB9C5DE.toInt() else muted)
-                    }
-                }
                 is Spinner -> {
-                    view.background = rounded(panel, 0xFF354565.toInt(), 13f)
-                    view.setPadding(dp(8), dp(4), dp(8), dp(4))
+                    view.background = shape(panel, 0xFF405477.toInt(), 13)
+                    view.setPadding(dp(10), dp(7), dp(10), dp(7))
                 }
                 is SeekBar -> {
                     view.progressTintList = android.content.res.ColorStateList.valueOf(mint)
                     view.thumbTintList = android.content.res.ColorStateList.valueOf(violet)
-                    view.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF35415A.toInt())
+                    view.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF34415A.toInt())
+                }
+                is TextView -> {
+                    val caption = view.text?.toString().orEmpty()
+                    if (caption.matches(Regex("0[1-6]\\\\s+•.*"))) {
+                        view.background = shape(0xFF17243A.toInt(), 0xFF344B70.toInt(), 13)
+                        view.setTextColor(0xFF82E8D9.toInt())
+                        view.textSize = 12.5f
+                        view.typeface = android.graphics.Typeface.create("sans-serif-bold", 0)
+                        view.letterSpacing = 0.07f
+                        view.gravity = Gravity.CENTER_VERTICAL
+                        view.setPadding(dp(14), dp(13), dp(14), dp(13))
+                        (view.layoutParams as? LinearLayout.LayoutParams)?.let {
+                            it.topMargin = dp(17); it.bottomMargin = dp(9); view.layoutParams = it
+                        }
+                    } else {
+                        view.setTextColor(if (caption.contains("HYPER")) 0xFFD8D1FF.toInt() else muted)
+                        if (view.textSize >= 18f) {
+                            view.typeface = android.graphics.Typeface.create("sans-serif-bold", 0)
+                            view.setPadding(0, dp(14), 0, dp(8))
+                        }
+                        if (caption.contains("AUTO RECAP") || caption.contains("ရလဒ် ဒီနေရာ")) {
+                            view.setLineSpacing(dp(3).toFloat(), 1f)
+                        }
+                    }
                 }
             }
         }
