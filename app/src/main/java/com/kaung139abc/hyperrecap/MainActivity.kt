@@ -361,8 +361,47 @@ class MainActivity : Activity() {
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
+        // Put the main workflow first: choose video, recap, export, voice;
+        // keep secondary AI tools and license controls below the primary actions.
+        arrangeDashboardSections(root)
         applyPremiumTheme(root)
         setContentView(scroll)
+    }
+
+    private fun arrangeDashboardSections(root: LinearLayout) {
+        val sectionOrder = listOf(
+            "02  •  VIDEO SOURCE",
+            "03  •  AUTOMATIC RECAP",
+            "05  •  RECAP RESULT & EXPORT",
+            "06  •  VOICE STUDIO",
+            "04  •  AI TOOLS",
+            "01  •  LICENSE & ACCOUNT"
+        )
+        val children = (0 until root.childCount).map { root.getChildAt(it) }
+        fun sectionIndex(title: String): Int = children.indexOfFirst { view ->
+            view is TextView && view.text?.toString()?.contains(title) == true
+        }
+        val starts = sectionOrder.map { sectionIndex(it) }
+        if (starts.any { it < 0 }) return
+
+        val headerEnd = starts.minOrNull() ?: return
+        val sectionStarts = children.indices.filter { index ->
+            val view = children[index]
+            view is TextView && sectionOrder.any { title ->
+                view.text?.toString()?.contains(title) == true
+            }
+        }
+        val firstSection = sectionStarts.minOrNull() ?: return
+        val tailStart = (sectionStarts.maxOrNull() ?: return) + 1
+        val sections = sectionOrder.mapIndexed { orderIndex, _ ->
+            val start = starts[orderIndex]
+            val end = (sectionStarts.firstOrNull { it > start } ?: tailStart)
+            children.subList(start, end)
+        }
+        val header = children.subList(0, firstSection)
+        val tail = children.subList(tailStart, children.size)
+        root.removeAllViews()
+        (header + sections.flatten() + tail).forEach { root.addView(it) }
     }
 
     private fun applyPremiumTheme(root: LinearLayout) {
