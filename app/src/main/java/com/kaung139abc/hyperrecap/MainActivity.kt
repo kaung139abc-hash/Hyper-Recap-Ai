@@ -992,7 +992,7 @@ class MainActivity : Activity() {
     private fun splitNarrationIntoChunks(text: String, maxChars: Int = 3000): List<String> {
         val chunks = mutableListOf<String>()
         var current = StringBuilder()
-        for (sentence in text.trim().split(Regex("(?<=[။.!?])\\s+"))) {
+        for (sentence in text.trim().split(Regex("(?<=[။.!?])\\s*"))) {
             var part = sentence.trim()
             while (part.length > maxChars) {
                 val cut = part.lastIndexOf(' ', maxChars).takeIf { it > maxChars / 2 } ?: maxChars
