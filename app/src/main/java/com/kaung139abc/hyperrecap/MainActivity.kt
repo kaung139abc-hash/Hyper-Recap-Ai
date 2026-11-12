@@ -1203,6 +1203,7 @@ class MainActivity : Activity() {
             return
         }
         val output = File(cacheDir, "hyper_narrated_${System.currentTimeMillis()}.mp4")
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         try {
             // Build a short montage from recap-selected source timestamps. If no reliable
             // source timestamps exist, retain the original video rather than guessing.
@@ -1334,6 +1335,7 @@ class MainActivity : Activity() {
                     override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                         Thread {
                             try {
+                                verifyNarratedMp4(output)
                                 contentResolver.openOutputStream(destination)?.use { target ->
                                     output.inputStream().use { input -> input.copyTo(target) }
                                 } ?: throw IllegalStateException("MP4 သိမ်းမည့်နေရာ ဖွင့်မရပါ။")
@@ -1344,6 +1346,9 @@ class MainActivity : Activity() {
                                 output.delete()
                                 narrationWav.delete()
                                 activeTransformer = null
+                                runOnUiThread {
+                                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                                }
                             }
                         }.start()
                     }
@@ -1351,7 +1356,10 @@ class MainActivity : Activity() {
                         output.delete()
                         narrationWav.delete()
                         activeTransformer = null
-                        runOnUiThread { status.text = "Narrated MP4 Export မအောင်မြင်ပါ: ${exportException.localizedMessage ?: "Encoding error"}" }
+                        runOnUiThread {
+                            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                            status.text = "Narrated MP4 Export မအောင်မြင်ပါ: ${exportException.localizedMessage ?: "Encoding error"}"
+                        }
                     }
                 }).build()
             activeTransformer = transformer
@@ -1361,7 +1369,41 @@ class MainActivity : Activity() {
             output.delete()
             narrationWav.delete()
             activeTransformer = null
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             status.text = "MP4 Export စတင်မရပါ: ${e.localizedMessage ?: "Export error"}"
+        }
+    }
+
+    private fun verifyNarratedMp4(file: File) {
+        if (!file.isFile || file.length() < 1_024L) {
+            throw IllegalStateException("Export လုပ်ထားသော MP4 ဖိုင် အလွတ်ဖြစ်နေပါသည်။")
+        }
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(file.absolutePath)
+            var hasVideo = false
+            var hasAudio = false
+            var videoDurationUs = 0L
+            var audioDurationUs = 0L
+            for (index in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(index)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+                val duration = if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                    format.getLong(MediaFormat.KEY_DURATION)
+                } else 0L
+                if (mime.startsWith("video/")) {
+                    hasVideo = true
+                    videoDurationUs = maxOf(videoDurationUs, duration)
+                } else if (mime.startsWith("audio/")) {
+                    hasAudio = true
+                    audioDurationUs = maxOf(audioDurationUs, duration)
+                }
+            }
+            if (!hasVideo || !hasAudio || videoDurationUs <= 0L || audioDurationUs <= 0L) {
+                throw IllegalStateException("MP4 ထဲတွင် Video Track နှင့် မြန်မာ Narration Audio Track နှစ်ခုလုံး မပါဝင်ပါ။")
+            }
+        } finally {
+            extractor.release()
         }
     }
 
