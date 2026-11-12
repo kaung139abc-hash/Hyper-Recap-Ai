@@ -43,6 +43,18 @@ jobs:
         run: |
           test -n "$ADMIN_SECRET" || (echo "Missing ADMIN_SECRET secret" && exit 1)
           printf '%s' "$ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET
+      - name: Configure optional commercial Burmese neural voice
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+        run: |
+          if [ -n "$ELEVENLABS_API_KEY" ]; then
+            printf '%s' "$ELEVENLABS_API_KEY" | npx wrangler secret put ELEVENLABS_API_KEY
+            echo "Commercial Burmese Neural Voice secret configured."
+          else
+            echo "ELEVENLABS_API_KEY is not configured; online neural voice remains disabled."
+          fi
       - name: Deploy Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
