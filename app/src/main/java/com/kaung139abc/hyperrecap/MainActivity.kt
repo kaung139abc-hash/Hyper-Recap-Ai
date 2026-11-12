@@ -990,7 +990,7 @@ class MainActivity : Activity() {
         if (selectedVideoUri == null || latestRecap.isBlank()) return
         if (selectedCommercialVoiceId.isNullOrBlank() &&
             (tts == null || availableVoices.isEmpty() || tts?.voice?.locale?.language != "my")) {
-            status.text = "မြန်မာ TTS အသံမရရှိပါ။ Commercial Neural Voice ရွေးပါ သို့မဟုတ် ဖုန်းထဲ Burmese voice ထည့်ပါ။"
+            status.text = "Offline မြန်မာ TTS အသံမတွေ့ပါ။ ဤအက်ပ်တွင် အခပေး Cloud Voice ကို အစားထိုးမသုံးပါ။ ဖုန်း Settings > Text-to-speech output မှ Burmese Offline voice data ထည့်သွင်းပြီး App ကို ပြန်ဖွင့်ပါ။"
             return
         }
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
