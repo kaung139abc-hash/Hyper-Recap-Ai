@@ -1,6 +1,6 @@
 # Hyper Recap AI License Server
 
-Cloudflare Workers + D1 license backend. Supports 3-day trial, 30-day monthly, lifetime, hashed key storage, device binding, and owner admin endpoints.
+Cloudflare Workers + D1 license backend. Supports 24-hour free trial, 30-day monthly, lifetime, hashed key storage, device binding, and owner admin endpoints.
 
 ## One-time Cloudflare setup
 
