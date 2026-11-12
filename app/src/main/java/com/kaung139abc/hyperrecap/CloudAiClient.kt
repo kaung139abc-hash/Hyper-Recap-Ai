@@ -35,11 +35,12 @@ object CloudAiClient {
         return level.joinToString("\n\n")
     }
 
-    fun analyzeVideoFrames(context: Context, frames: List<String>): String {
+    fun analyzeVideoFrames(context: Context, frames: List<String>, frameTimesMs: List<Long> = emptyList()): String {
         if (frames.isEmpty() || frames.size > 2) throw IllegalArgumentException("Frame ၁ မှ ၂ ပုံအထိသာ ပို့နိုင်ပါသည်။")
+        if (frameTimesMs.isNotEmpty() && frameTimesMs.size != frames.size) throw IllegalArgumentException("Frame အချိန်နှင့် ပုံအရေအတွက် မကိုက်ညီပါ။")
         val license = LicenseManager.savedKey(context)
         if (license.isBlank()) throw IllegalStateException("License Key ကို အရင် Activate လုပ်ပါ။")
-        val payload = JSONObject().put("licenseKey", license).put("deviceId", LicenseManager.deviceId(context)).put("frames", org.json.JSONArray(frames)).toString()
+        val payload = JSONObject().put("licenseKey", license).put("deviceId", LicenseManager.deviceId(context)).put("frames", org.json.JSONArray(frames)).put("frameTimesMs", org.json.JSONArray(frameTimesMs)).toString()
         return postJson("/v1/ai/vision", payload).getString("description")
     }
 
