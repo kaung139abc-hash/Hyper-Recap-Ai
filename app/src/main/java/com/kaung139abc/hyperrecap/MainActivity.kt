@@ -96,11 +96,33 @@ class MainActivity : Activity() {
     }
 
     private fun handleSharedLink(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_SEND) {
-            val shared = intent.getStringExtra(Intent.EXTRA_TEXT)
-            if (!shared.isNullOrBlank() && ::linkInput.isInitialized) {
-                val detected = SocialLinkSupport.extract(shared)
-                linkInput.setText(detected?.uri?.toString() ?: shared.trim())
+        if (intent?.action != Intent.ACTION_SEND) return
+
+        // Accept a video file shared from an official social app/browser after
+        // the user has used its permitted Save/Download action.
+        val sharedVideo = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        if (sharedVideo != null && (intent.type?.startsWith("video/") == true || intent.type == "*/*")) {
+            selectedVideoUri = sharedVideo
+            try {
+                contentResolver.takePersistableUriPermission(
+                    sharedVideo, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+                // Many share providers grant temporary read access only.
+            }
+            if (::selectedInfo.isInitialized) {
+                selectedInfo.text = queryName(sharedVideo) ?: "မျှဝေထားသော Video"
+                status.text = "Video ကို Share လုပ်ပြီး လက်ခံရရှိပါပြီ။ AUTO RECAP ကိုနှိပ်ပါ။"
+            }
+            return
+        }
+
+        val shared = intent.getStringExtra(Intent.EXTRA_TEXT)
+        if (!shared.isNullOrBlank() && ::linkInput.isInitialized) {
+            val detected = SocialLinkSupport.extract(shared)
+            linkInput.setText(detected?.uri?.toString() ?: shared.trim())
+            if (detected != null && detected.platform != SocialLinkSupport.Platform.UNKNOWN) {
+                status.text = "${detected.platform.label} Link ရရှိပါပြီ။ Platform ၏ ခွင့်ပြုထားသော Download/Save ဖြင့် Video ကို သိမ်းပြီး Share > Hyper Recap AI လုပ်ပါ။"
             }
         }
     }
