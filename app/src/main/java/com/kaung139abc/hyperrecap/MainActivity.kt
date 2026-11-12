@@ -64,6 +64,9 @@ class MainActivity : Activity() {
     private lateinit var voiceInfo: TextView
     private var pendingAudioUri: Uri? = null
     private var pendingAudioFile: File? = null
+    private var pendingAudioChunks: List<String> = emptyList()
+    private var pendingAudioChunkFiles: MutableList<File> = mutableListOf()
+    private var pendingAudioChunkIndex: Int = 0
     @Volatile private var pendingSpeechChunks: List<String> = emptyList()
     @Volatile private var pendingSpeechChunkIndex: Int = 0
     private var selectedVideoUri: Uri? = null
@@ -676,15 +679,19 @@ class MainActivity : Activity() {
                 override fun onError(utteranceId: String?) {
                     val narrationFailed = utteranceId == "hyper_auto_narration" ||
                         utteranceId?.startsWith("hyper_auto_narration_chunk_") == true
+                    val recapAudioFailed = utteranceId?.startsWith("hyper_recap_audio_chunk_") == true
                     if (narrationFailed) {
                         // TTS callbacks run off the UI thread. Clear every pending file and
                         // reset the export state so a failed chunk cannot leave the screen
                         // awake or make the next export look permanently busy.
                         cleanupPendingNarration()
                     }
-                    pendingAudioFile?.delete()
-                    pendingAudioFile = null
-                    pendingAudioUri = null
+                    if (recapAudioFailed) cleanupPendingAudioExport()
+                    if (!recapAudioFailed) {
+                        pendingAudioFile?.delete()
+                        pendingAudioFile = null
+                        pendingAudioUri = null
+                    }
                     runOnUiThread {
                         if (narrationFailed) {
                             window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -706,6 +713,22 @@ class MainActivity : Activity() {
                             pendingSpeechChunks = emptyList()
                             pendingSpeechChunkIndex = 0
                             runOnUiThread { status.text = "Recap အသံဖတ်ပြီးပါပြီ။" }
+                        }
+                        return
+                    }
+                    if (utteranceId?.startsWith("hyper_recap_audio_chunk_") == true) {
+                        val completedIndex = utteranceId.substringAfterLast("_").toIntOrNull() ?: return
+                        if (completedIndex != pendingAudioChunkIndex) return
+                        pendingAudioChunkIndex++
+                        if (pendingAudioChunkIndex < pendingAudioChunks.size) {
+                            try {
+                                synthesizeNextRecapAudioChunk()
+                            } catch (e: Exception) {
+                                cleanupPendingAudioExport()
+                                runOnUiThread { status.text = "နောက်ထပ် အသံအပိုင်းကို ဖန်တီးမရပါ: " + (e.localizedMessage ?: "TTS error") }
+                            }
+                        } else {
+                            finishRecapAudioExport()
                         }
                         return
                     }
@@ -934,26 +957,68 @@ class MainActivity : Activity() {
     private fun synthesizeRecapAudio(destination: Uri) {
         val engine = tts ?: return
         try {
+            if (availableVoices.isEmpty() || engine.voice?.locale?.language != "my") {
+                throw IllegalStateException("Offline မြန်မာ TTS Voice ကို ရွေးချယ်ပါ။")
+            }
             engine.setSpeechRate(0.5f + speechRate.progress / 100f)
             engine.setPitch(0.5f + speechPitch.progress / 100f)
-            val file = File(cacheDir, "hyper_recap_${System.currentTimeMillis()}.wav")
             pendingAudioUri = destination
-            pendingAudioFile = file
-            val result = engine.synthesizeToFile(latestRecap, Bundle(), file, "hyper_recap_audio_export")
-            if (result != TextToSpeech.SUCCESS) {
-                file.delete()
-                pendingAudioUri = null
-                pendingAudioFile = null
-                status.text = "ဒီ TTS Engine က အသံဖိုင်ထုတ်ပေးမှုကို မပံ့ပိုးပါ။"
-            } else {
-                status.text = "အသံဖိုင် WAV ဖန်တီးနေပါသည်။ ခဏစောင့်ပါ..."
-            }
+            pendingAudioFile = File(cacheDir, "hyper_recap_${System.currentTimeMillis()}.wav")
+            pendingAudioChunks = splitNarrationIntoChunks(latestRecap, 2500)
+            pendingAudioChunkFiles = mutableListOf()
+            pendingAudioChunkIndex = 0
+            if (pendingAudioChunks.isEmpty()) throw IllegalStateException("Recap စာသား မရှိပါ။")
+            status.text = "အကန့်အသတ်မရှိ Local TTS — WAV အသံ ${pendingAudioChunks.size} ပိုင်း ဖန်တီးနေပါသည်..."
+            synthesizeNextRecapAudioChunk()
         } catch (e: Exception) {
-            pendingAudioFile?.delete()
-            pendingAudioFile = null
-            pendingAudioUri = null
+            cleanupPendingAudioExport()
             status.text = "အသံဖိုင်ဖန်တီးမရပါ: ${e.localizedMessage ?: "Error"}"
         }
+    }
+
+    private fun synthesizeNextRecapAudioChunk() {
+        val engine = tts ?: throw IllegalStateException("TTS Engine မရရှိပါ။")
+        val index = pendingAudioChunkIndex
+        if (index !in pendingAudioChunks.indices) throw IllegalStateException("အသံအပိုင်း မရှိပါ။")
+        val part = File(cacheDir, "hyper_recap_part_${System.currentTimeMillis()}_${index}.wav")
+        part.delete()
+        pendingAudioChunkFiles += part
+        val result = engine.synthesizeToFile(
+            pendingAudioChunks[index], Bundle(), part, "hyper_recap_audio_chunk_${index}"
+        )
+        if (result != TextToSpeech.SUCCESS) {
+            part.delete()
+            pendingAudioChunkFiles.remove(part)
+            throw IllegalStateException("TTS က အသံအပိုင်း ${index + 1} ကို မဖန်တီးနိုင်ပါ။")
+        }
+    }
+
+    private fun finishRecapAudioExport() {
+        val destination = pendingAudioUri ?: return
+        val merged = pendingAudioFile ?: return
+        Thread {
+            try {
+                mergeNarrationWavChunks(pendingAudioChunkFiles, merged)
+                contentResolver.openOutputStream(destination)?.use { output ->
+                    merged.inputStream().use { input -> input.copyTo(output) }
+                } ?: throw IllegalStateException("Output stream unavailable")
+                runOnUiThread { status.text = "✓ Recap WAV အသံဖိုင် အပိုင်းအားလုံးကို ပေါင်းပြီး သိမ်းပြီးပါပြီ။" }
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "အသံဖိုင် သိမ်းမရပါ: ${e.localizedMessage ?: "Error"}" }
+            } finally {
+                cleanupPendingAudioExport()
+            }
+        }.start()
+    }
+
+    private fun cleanupPendingAudioExport() {
+        pendingAudioChunkFiles.forEach { it.delete() }
+        pendingAudioChunkFiles.clear()
+        pendingAudioChunks = emptyList()
+        pendingAudioChunkIndex = 0
+        pendingAudioFile?.delete()
+        pendingAudioFile = null
+        pendingAudioUri = null
     }
 
     private fun speakRecap() {
@@ -1236,30 +1301,45 @@ class MainActivity : Activity() {
     }
 
     private fun splitNarrationIntoChunks(text: String, maxChars: Int = 3000): List<String> {
-        val chunks = mutableListOf<String>()
-        var current = StringBuilder()
-        for (sentence in text.trim().split(Regex("(?<=[။.!?])\\s*"))) {
-            var part = sentence.trim()
-            while (part.length > maxChars) {
-                val cut = part.lastIndexOf(' ', maxChars).takeIf { it > maxChars / 2 } ?: maxChars
-                if (current.isNotEmpty()) {
-                    chunks += current.toString().trim()
-                    current = StringBuilder()
-                }
-                chunks += part.substring(0, cut).trim()
-                part = part.substring(cut).trim()
-            }
-            if (part.isNotEmpty()) {
-                if (current.isNotEmpty() && current.length + part.length + 1 > maxChars) {
-                    chunks += current.toString().trim()
-                    current = StringBuilder()
-                }
-                if (current.isNotEmpty()) current.append(' ')
-                current.append(part)
-            }
+        require(maxChars > 0) { "Chunk size must be positive" }
+        val clean = text.trim()
+        if (clean.isEmpty()) return emptyList()
+        // Keep Myanmar base characters, medials and combining marks together.
+        val iterator = java.text.BreakIterator.getCharacterInstance(Locale("my"))
+        iterator.setText(clean)
+        val clusters = ArrayList<String>()
+        var start = iterator.first()
+        var end = iterator.next()
+        while (end != java.text.BreakIterator.DONE) {
+            clusters += clean.substring(start, end)
+            start = end
+            end = iterator.next()
         }
-        if (current.isNotEmpty()) chunks += current.toString().trim()
-        return chunks.filter { it.isNotBlank() }
+        val chunks = ArrayList<String>()
+        var offset = 0
+        while (offset < clusters.size) {
+            var hardEnd = offset
+            var length = 0
+            while (hardEnd < clusters.size && length + clusters[hardEnd].length <= maxChars) {
+                length += clusters[hardEnd].length
+                hardEnd++
+            }
+            if (hardEnd == offset) hardEnd++
+            if (hardEnd < clusters.size) {
+                val preferredFloor = length * 2 / 3
+                var scannedLength = 0
+                var whitespaceCut = -1
+                for (index in offset until hardEnd) {
+                    scannedLength += clusters[index].length
+                    if (scannedLength >= preferredFloor && clusters[index].isBlank()) whitespaceCut = index + 1
+                }
+                if (whitespaceCut > offset) hardEnd = whitespaceCut
+            }
+            val chunk = clusters.subList(offset, hardEnd).joinToString("").trim()
+            if (chunk.isNotBlank()) chunks += chunk
+            offset = hardEnd
+        }
+        return chunks
     }
 
     private fun synthesizeNextNarrationChunk() {
