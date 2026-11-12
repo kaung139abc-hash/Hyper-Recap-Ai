@@ -97,23 +97,12 @@ object AudioDecoder {
                             buffer.limit(info.offset + info.size)
                             val chunk = ByteArray(info.size)
                             buffer.get(chunk)
-                            if (pcmEncoding == 4) {
-                                // Convert float PCM to signed 16-bit PCM for broad WAV compatibility.
-                                val floats = ByteBuffer.wrap(chunk).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
-                                val converted = ByteBuffer.allocate(floats.remaining() * 2).order(ByteOrder.LITTLE_ENDIAN)
-                                while (floats.hasRemaining()) {
-                                    val value = floats.get().coerceIn(-1f, 1f)
-                                    converted.putShort((value * 32767f).toInt().toShort())
-                                }
-                                val pcm = converted.array()
-                                out.seek(44L + dataBytes)
-                                out.write(pcm)
-                                dataBytes += pcm.size
-                            } else {
-                                out.seek(44L + dataBytes)
-                                out.write(chunk)
-                                dataBytes += chunk.size
-                            }
+                            // WAV header below is always 16-bit PCM. Normalize decoder output
+                            // rather than writing 8/24/32-bit samples under a false 16-bit header.
+                            val pcm = convertToPcm16(chunk, pcmEncoding)
+                            out.seek(44L + dataBytes)
+                            out.write(pcm)
+                            dataBytes += pcm.size
                             val durationUs = inputFormat.getLongOrDefault(MediaFormat.KEY_DURATION, 0L)
                             if (durationUs > 0) {
                                 val pct = ((info.presentationTimeUs * 100L) / durationUs).coerceIn(0L, 100L)
@@ -155,6 +144,39 @@ object AudioDecoder {
             try { extractor.release() } catch (_: Exception) {}
             try { wav?.close() } catch (_: Exception) {}
         }
+    }
+
+    private fun convertToPcm16(bytes: ByteArray, encoding: Int): ByteArray {
+        if (encoding == 2) return bytes // ENCODING_PCM_16BIT
+        val input = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val output = when (encoding) {
+            3 -> ByteBuffer.allocate((bytes.size / 1) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_8BIT
+            4 -> ByteBuffer.allocate((bytes.size / 4) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_FLOAT
+            21 -> ByteBuffer.allocate((bytes.size / 3) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_24BIT_PACKED
+            22 -> ByteBuffer.allocate((bytes.size / 4) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_32BIT
+            else -> throw IllegalStateException("မပံ့ပိုးသော PCM encoding: $encoding")
+        }
+        when (encoding) {
+            3 -> while (input.remaining() >= 1) {
+                val unsigned = input.get().toInt() and 0xff
+                output.putShort(((unsigned - 128) shl 8).toShort())
+            }
+            4 -> while (input.remaining() >= 4) {
+                val value = input.float.coerceIn(-1f, 1f)
+                output.putShort((value * 32767f).toInt().toShort())
+            }
+            21 -> while (input.remaining() >= 3) {
+                var value = (input.get().toInt() and 0xff) or
+                    ((input.get().toInt() and 0xff) shl 8) or
+                    (input.get().toInt() shl 16)
+                if ((value and 0x800000) != 0) value = value or -0x1000000
+                output.putShort((value shr 8).toShort())
+            }
+            22 -> while (input.remaining() >= 4) {
+                output.putShort((input.int shr 16).toShort())
+            }
+        }
+        return output.array()
     }
 
     private fun RandomAccessFile.writeIntLE(value: Int) {
