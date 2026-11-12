@@ -340,7 +340,10 @@ object WhisperTranscriber {
     private fun readWavInfo(file: File): WavInfo {
         RandomAccessFile(file, "r").use { input ->
             if (readAscii(input, 4) != "RIFF") throw IllegalArgumentException("WAV RIFF header မမှန်ပါ။")
-            readIntLe(input)
+            val riffSize = readIntLe(input).toLong() and 0xffffffffL
+            if (riffSize < 4L || riffSize > input.length() - 8L) {
+                throw IllegalArgumentException("WAV RIFF အရွယ်အစား မမှန်ပါ။")
+            }
             if (readAscii(input, 4) != "WAVE") throw IllegalArgumentException("WAV format မမှန်ပါ။")
             var sampleRate = 0
             var channels = 0
@@ -352,8 +355,13 @@ object WhisperTranscriber {
                 val id = readAscii(input, 4)
                 val size = readIntLe(input).toLong() and 0xffffffffL
                 val chunkStart = input.filePointer
+                val chunkEnd = chunkStart + size + (size and 1L)
+                if (chunkEnd < chunkStart || chunkEnd > input.length()) {
+                    throw IllegalArgumentException("WAV chunk အဆုံးသတ် မမှန်ပါ။")
+                }
                 when (id) {
                     "fmt " -> {
+                        if (size < 16L) throw IllegalArgumentException("WAV fmt chunk မပြည့်စုံပါ။")
                         encoding = readShortLe(input)
                         channels = readShortLe(input)
                         sampleRate = readIntLe(input)
@@ -366,7 +374,7 @@ object WhisperTranscriber {
                         dataBytes = size
                     }
                 }
-                input.seek(chunkStart + size + (size and 1L))
+                input.seek(chunkEnd)
                 if (dataOffset >= 0 && sampleRate > 0 && channels > 0) break
             }
             if (encoding != 1 || bits != 16 || sampleRate !in 8_000..192_000 ||
