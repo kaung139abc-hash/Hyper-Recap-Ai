@@ -1,7 +1,7 @@
 package com.kaung139abc.hyperrecap
 
 import android.content.Context
-import com.llamatik.core.platform.LlamaBridge
+import com.llamatik.library.platform.LlamaBridge
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -73,6 +73,7 @@ object OfflineStoryAi {
                 numThreads = 3,
                 useMmap = true,
                 flashAttention = false,
+                batchSize = 256,
                 gpuLayers = 0
             )
             if (!LlamaBridge.initGenerateModel(model.absolutePath)) {

@@ -17,7 +17,7 @@ android {
         }
     }
     namespace = "com.kaung139abc.hyperrecap"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.kaung139abc.hyperrecap"
@@ -49,5 +49,5 @@ dependencies {
     implementation("commons-io:commons-io:2.17.0")
     implementation("androidx.media3:media3-transformer:1.8.0")
     // MIT-licensed on-device llama.cpp inference runtime for downloadable GGUF models.
-    implementation("com.llamatik:core:2.2.2")
+    implementation("com.llamatik:library:1.10.1")
 }
