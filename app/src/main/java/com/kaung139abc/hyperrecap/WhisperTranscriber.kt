@@ -210,6 +210,7 @@ object WhisperTranscriber {
                 }
                 val recognizedText = result.text.trim()
                 if (recognizedText.isNotBlank()) {
+                    val segmentCountBeforeChunk = segments.size
                     val tokenTexts = result.tokens
                     val tokenStarts = result.timestamps
                     val tokenDurations = result.durations
@@ -260,7 +261,7 @@ object WhisperTranscriber {
                     }
 
                     // Fallback only when this sherpa runtime/model returns no valid DTW alignment.
-                    if (!hasUsableAlignment || segments.none { it.startMs >= startMs && it.endMs <= endMs }) {
+                    if (!hasUsableAlignment || segments.size == segmentCountBeforeChunk) {
                         val pieces = splitSubtitleText(recognizedText, 88)
                         val weights = pieces.map { it.length.coerceAtLeast(1) }
                         val totalWeight = weights.sum().coerceAtLeast(1)
