@@ -867,20 +867,29 @@ class MainActivity : Activity() {
                 var recapMode = "Local Offline Recap"
                 val savedKey = LicenseManager.savedKey(this)
                 if (savedKey.isNotBlank()) {
-                    try {
-                        val video = selectedVideoUri
-                        val visualNotes = if (video != null) {
+                    var visualNotes = ""
+                    val video = selectedVideoUri
+                    if (video != null) {
+                        try {
                             runOnUiThread { status.text = "AI ရုပ်ပုံနားလည်မှု — ဇာတ်လမ်းတစ်လျှောက် Scene များကို စိစစ်နေပါသည်..." }
-                            analyzeVideoFrames(video) { message -> runOnUiThread { status.text = message } }
-                        } else ""
+                            visualNotes = analyzeVideoFrames(video) { message -> runOnUiThread { status.text = message } }
+                        } catch (visionError: Exception) {
+                            // Vision is an enhancement, not a blocker for transcript-based generative recap.
+                            runOnUiThread { status.text = "ရုပ်ပုံ AI မရနိုင်ပါ။ Transcript ကိုအခြေခံပြီး Generative Recap ဆက်လုပ်နေပါသည်..." }
+                        }
+                    }
+                    try {
                         runOnUiThread { status.text = "Generative AI က ဇာတ်လမ်းအစမှ အဆုံးအထိ မြန်မာ Recap ရေးသားနေပါသည်..." }
                         finalRecap = CloudAiClient.generateBurmeseRecap(this, source, visualNotes) { message ->
                             runOnUiThread { status.text = message }
                         }
-                        if (finalRecap.isNotBlank()) recapMode = "Cloud Generative AI + Visual Scene Analysis"
+                        if (finalRecap.isNotBlank()) {
+                            recapMode = if (visualNotes.isNotBlank()) "Cloud Generative AI + Visual Scene Analysis"
+                                else "Cloud Generative AI (Transcript-based)"
+                        }
                     } catch (cloudError: Exception) {
                         runOnUiThread {
-                            status.text = "Cloud AI မရနိုင်သဖြင့် Offline Recap သို့ ပြောင်းနေပါသည်..."
+                            status.text = "Generative AI မရနိုင်သဖြင့် Offline Recap သို့ ပြောင်းနေပါသည်..."
                         }
                     }
                 }
