@@ -1042,17 +1042,28 @@ class MainActivity : Activity() {
                 status.text = "Recap သို့မဟုတ် Video မရှိပါ။"
                 return
             }
-            val audioFile = File(cacheDir, "hyper_commercial_myanmar_voice_${System.currentTimeMillis()}.mp3")
+            val chunks = splitNarrationIntoChunks(latestRecap, 4_200)
+            if (chunks.isEmpty()) {
+                status.text = "ဖတ်ရန် Recap စာသား မရှိပါ။"
+                return
+            }
+            val audioFiles = chunks.indices.map { index ->
+                File(cacheDir, "hyper_commercial_voice_${System.currentTimeMillis()}_${index}.mp3")
+            }
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            status.text = "Commercial မြန်မာ Neural Voice ဖြင့် MP3 ဖန်တီးနေပါသည်..."
+            status.text = "Commercial မြန်မာ Neural Voice — ${chunks.size} ပိုင်း ဖန်တီးနေပါသည်..."
             Thread {
                 try {
-                    CloudAiClient.synthesizeCommercialMyanmarVoice(
-                        this, latestRecap, commercialVoiceId, audioFile
-                    ) { message -> runOnUiThread { status.text = message } }
-                    runOnUiThread { exportNarratedMp4(destination, audioFile) }
+                    chunks.forEachIndexed { index, chunk ->
+                        CloudAiClient.synthesizeCommercialMyanmarVoice(
+                            this, chunk, commercialVoiceId, audioFiles[index]
+                        ) { message ->
+                            runOnUiThread { status.text = "အသံ ${index + 1}/${chunks.size} — $message" }
+                        }
+                    }
+                    runOnUiThread { exportNarratedMp4(destination, audioFiles) }
                 } catch (error: Exception) {
-                    audioFile.delete()
+                    audioFiles.forEach { it.delete() }
                     runOnUiThread {
                         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         status.text = "Commercial Neural Voice မအောင်မြင်ပါ: ${error.localizedMessage ?: "TTS error"}"
@@ -1263,17 +1274,31 @@ class MainActivity : Activity() {
     }
 
     @OptIn(UnstableApi::class)
-    private fun exportNarratedMp4(destination: Uri, narrationWav: File) {
+    private fun exportNarratedMp4(destination: Uri, narrationWav: File) =
+        exportNarratedMp4(destination, listOf(narrationWav))
+
+    /** Export one or more narration tracks in order; commercial TTS is chunked to API limits. */
+    private fun exportNarratedMp4(destination: Uri, narrationFiles: List<File>) {
         val source = selectedVideoUri
-        if (source == null || !narrationWav.isFile || narrationWav.length() < 44L) {
-            narrationWav.delete()
-            status.text = "Video သို့မဟုတ် Narration WAV မပြည့်စုံပါ။"
+        if (source == null || narrationFiles.isEmpty() ||
+            narrationFiles.any { !it.isFile || it.length() < 44L }) {
+            narrationFiles.forEach { it.delete() }
+            status.text = "Video သို့မဟုတ် Narration အသံဖိုင် မပြည့်စုံပါ။"
             return
         }
         if (activeTransformer != null) {
-            narrationWav.delete()
+            narrationFiles.forEach { it.delete() }
             status.text = "MP4 Export လုပ်ဆောင်နေဆဲပါ။"
             return
+        }
+        fun totalNarrationDurationMs(): Long = narrationFiles.sumOf { audioFile ->
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(audioFile.absolutePath)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            } finally {
+                retriever.release()
+            }
         }
         val output = File(cacheDir, "hyper_narrated_${System.currentTimeMillis()}.mp4")
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1290,13 +1315,7 @@ class MainActivity : Activity() {
                 } finally {
                     retriever.release()
                 }
-                val narrationRetriever = MediaMetadataRetriever()
-                val narrationDurationMs = try {
-                    narrationRetriever.setDataSource(narrationWav.absolutePath)
-                    narrationRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                } finally {
-                    narrationRetriever.release()
-                }
+                val narrationDurationMs = totalNarrationDurationMs()
                 if (sourceDurationMs <= 0L || narrationDurationMs <= 0L) {
                     throw IllegalStateException("Video/Narration ကြာချိန်ကို ဖတ်မရပါ။")
                 }
@@ -1354,13 +1373,7 @@ class MainActivity : Activity() {
                 } finally {
                     sourceRetriever.release()
                 }
-                val narrationRetriever = MediaMetadataRetriever()
-                val narrationDurationMs = try {
-                    narrationRetriever.setDataSource(narrationWav.absolutePath)
-                    narrationRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                } finally {
-                    narrationRetriever.release()
-                }
+                val narrationDurationMs = totalNarrationDurationMs()
                 if (sourceDurationMs <= 0L || narrationDurationMs <= 0L) {
                     throw IllegalStateException("Video/Narration ကြာချိန်ကို ဖတ်မရပါ။")
                 }
@@ -1398,9 +1411,11 @@ class MainActivity : Activity() {
                     throw IllegalStateException("Video မှ Export လုပ်နိုင်သော Clip မရရှိပါ။")
                 }
             }
-            val audioItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(narrationWav))).setRemoveVideo(true).build()
+            val audioItems = narrationFiles.map { audioFile ->
+                EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(audioFile))).setRemoveVideo(true).build()
+            }
             val videoSequence = EditedMediaItemSequence.Builder(videoItems).build()
-            val audioSequence = EditedMediaItemSequence.Builder(listOf(audioItem)).build()
+            val audioSequence = EditedMediaItemSequence.Builder(audioItems).build()
             val composition = Composition.Builder(listOf(videoSequence, audioSequence)).build()
             output.createNewFile()
             val transformer = Transformer.Builder(this)
@@ -1417,7 +1432,7 @@ class MainActivity : Activity() {
                                 runOnUiThread { status.text = "MP4 သိမ်းမရပါ: ${e.localizedMessage ?: "Storage error"}" }
                             } finally {
                                 output.delete()
-                                narrationWav.delete()
+                                narrationFiles.forEach { it.delete() }
                                 activeTransformer = null
                                 runOnUiThread {
                                     window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1427,7 +1442,7 @@ class MainActivity : Activity() {
                     }
                     override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
                         output.delete()
-                        narrationWav.delete()
+                        narrationFiles.forEach { it.delete() }
                         activeTransformer = null
                         runOnUiThread {
                             window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1440,7 +1455,7 @@ class MainActivity : Activity() {
             transformer.start(composition, output.absolutePath)
         } catch (e: Exception) {
             output.delete()
-            narrationWav.delete()
+            narrationFiles.forEach { it.delete() }
             activeTransformer = null
             window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             status.text = "MP4 Export စတင်မရပါ: ${e.localizedMessage ?: "Export error"}"
