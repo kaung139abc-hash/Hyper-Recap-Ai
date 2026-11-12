@@ -182,11 +182,15 @@ object OfflineStoryAi {
             val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
             val memory = android.app.ActivityManager.MemoryInfo()
             activityManager.getMemoryInfo(memory)
-            val minimumAvailableRam = 480L * 1024L * 1024L
+            // On 4 GB Android phones, leave enough headroom for the OS,
+            // MediaCodec/Whisper native buffers and the mapped GGUF weights.
+            // A 480 MB check was too optimistic and could trigger LMK kills.
+            val minimumAvailableRam = 640L * 1024L * 1024L
             if (memory.lowMemory || memory.availMem < minimumAvailableRam) {
                 throw IllegalStateException(
-                    "Offline Story AI အတွက် လက်ရှိ RAM မလုံလောက်ပါ။ App မပိတ်သွားစေရန် Model မတင်သေးပါ။ " +
-                        "အခြား App များပိတ်ပြီး ပြန်စမ်းပါ။ (လွတ်နေသော RAM " +
+                    "Offline Story AI အတွက် လွတ်နေသော RAM အနည်းဆုံး 640 MB လိုအပ်ပါသည်။ " +
+                        "ဖုန်းမပိတ်သွားစေရန် Model မတင်သေးပါ။ အခြား App များပိတ်ပြီး ပြန်စမ်းပါ။ " +
+                        "(လက်ရှိလွတ်နေသော RAM " +
                         (memory.availMem / (1024 * 1024)).toString() + " MB)"
                 )
             }
@@ -206,11 +210,12 @@ object OfflineStoryAi {
             topP = 0.85f,
             topK = 35,
             repeatPenalty = 1.12f,
-            contextLength = 4096,
-            numThreads = 3,
+            // Conservative CPU/RAM settings for the target 4 GB Android device.
+            contextLength = 3072,
+            numThreads = 2,
             useMmap = true,
             flashAttention = false,
-            batchSize = 256,
+            batchSize = 128,
             gpuLayers = 0
         )
     }
