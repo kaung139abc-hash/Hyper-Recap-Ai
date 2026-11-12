@@ -43,6 +43,8 @@ jobs:
           unzip -t app/libs/sherpa-onnx.aar >/dev/null
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
+      - name: Run recap pipeline JVM unit tests
+        run: gradle --no-daemon testDebugUnitTest
       - name: Configure private release signing
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
