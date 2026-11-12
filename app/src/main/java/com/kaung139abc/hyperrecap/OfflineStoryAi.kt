@@ -248,7 +248,7 @@ object OfflineStoryAi {
         try {
             connection.connect()
             val response = connection.responseCode
-            if (response == HttpURLConnection.HTTP_REQUESTED_RANGE_NOT_SATISFIABLE) {
+            if (response == 416) {
                 if (isValidModelFile(partial)) {
                     if (!partial.renameTo(model)) throw IllegalStateException("Offline AI Model ကို သိမ်းမရပါ။")
                     return model
