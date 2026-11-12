@@ -1798,6 +1798,7 @@ class MainActivity : Activity() {
         val sourceUri = selectedVideoUri
         if (sourceUri == null) {
             status.text = "အရင်ဆုံး Video ရွေးပါ။"
+            recapOutput.text = "Video မရွေးရသေးပါ။ ဖုန်းထဲက Video ရွေးပြီး AUTO RECAP ကိုနှိပ်ပါ။"
             return
         }
         if (transcriptionInProgress) {
@@ -1805,49 +1806,59 @@ class MainActivity : Activity() {
             return
         }
         transcriptionInProgress = true
-        // Keep Android from sleeping while a long movie is decoded and transcribed.
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        status.text = "Whisper အတွက် Video အသံကို PCM ပြောင်းနေပါသည်..."
+        status.text = "အဆင့် ၁/၃ — Video အသံကို ဖတ်နေပါသည်..."
+        recapOutput.text = "AUTO RECAP စတင်ပါပြီ။\n\nအဆင့် ၁/၃ — Video Audio ကို PCM ပြောင်းနေပါသည်။\nပြီးဆုံးသည်အထိ App ကို မပိတ်ပါနှင့်။"
         Thread {
             val wav = File(cacheDir, "hyper_whisper_${System.currentTimeMillis()}.wav")
-            // If transcription succeeds, generateRecap() takes ownership of the
-            // screen-awake flag and clears it only after the long AI pass completes.
             var handedOffToRecap = false
             try {
                 AudioDecoder.decodeToWav(this, sourceUri, wav) { message ->
-                    runOnUiThread { status.text = message }
+                    runOnUiThread {
+                        status.text = message
+                        recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\n\n$message"
+                    }
+                }
+                if (!wav.isFile || wav.length() <= 44L) {
+                    throw IllegalStateException("Video မှ အသံဒေတာ မထွက်လာပါ။ Video တွင် Audio Track ရှိမရှိ စစ်ဆေးပါ။")
                 }
                 val segments = WhisperTranscriber.transcribeVideoAudio(this, wav) { message ->
-                    runOnUiThread { status.text = message }
+                    runOnUiThread {
+                        status.text = message
+                        recapOutput.text = "အဆင့် ၂/၃ — အသံမှ စာသားထုတ်နေပါသည်။\n\n$message"
+                    }
                 }
                 if (segments.isEmpty()) {
-                    throw IllegalStateException("စကားပြောသံ မတွေ့ပါ။ Video Audio Track ကို စစ်ဆေးပါ။")
+                    throw IllegalStateException("Whisper မှ စကားပြောစာသား မတွေ့ပါ။ Video အသံ/ဘာသာစကားကို စစ်ဆေးပါ။")
                 }
                 val cues = segments.map { SrtTranscript.Cue(it.startMs, it.endMs, it.text) }
-                val transcript = cues.joinToString("\n") { it.text }
-                val shouldStartRecap = transcript.length >= 80
-                handedOffToRecap = shouldStartRecap
-                // Local-first workflow: the movie is understood through its full audio transcript.
-                // Do not upload sampled frames or depend on cloud vision for AUTO RECAP.
+                val transcript = cues.joinToString("\n") { it.text }.trim()
+                if (transcript.length < 80) {
+                    throw IllegalStateException("အသံမှ စာသား ${transcript.length} လုံးသာ ရရှိသည်။ Recap အတွက် အနည်းဆုံး ၈၀ လုံးခန့် လိုအပ်သည်။")
+                }
+                handedOffToRecap = true
                 latestVisualContext = ""
                 runOnUiThread {
                     importedSrtCues = cues
                     importedSrtSource = transcript
                     transcriptInput.setText(transcript)
                     latestSrt = SrtTranscript.toSrt(cues)
-                    recapOutput.text = "Whisper Transcript ရရှိပါပြီ။ Recap ကို အလိုအလျောက် ဖန်တီးနေပါသည်..."
-                    status.text = "Whisper Offline Transcription ပြီးပါပြီ။ ${cues.size} အပိုင်း ရရှိသည်။ မူရင်း Video အချိန်အပိုင်းအခြားများကို SRT တွင် ထိန်းသိမ်းထားသည်။"
-                    if (transcript.length >= 80) {
-                        generateRecap()
-                    } else {
-                        latestRecap = ""
-                        recapOutput.text = "အသံစာသား မလုံလောက်သဖြင့် ယုံကြည်စိတ်ချရသော Recap မထုတ်နိုင်ပါ။"
-                        status.text = "Whisper မှ ရရှိသော Transcript သည် Recap အတွက် မလုံလောက်ပါ။ Video အသံ/ဘာသာစကားကို စစ်ဆေးပါ။"
-                    }
+                    recapOutput.text = "အဆင့် ၂/၃ ပြီးပါပြီ — စာသား ${transcript.length} လုံး ရရှိသည်။\n\nအဆင့် ၃/၃ — Local AI ဖြင့် ဇာတ်လမ်း Recap ဖန်တီးနေပါသည်..."
+                    status.text = "Whisper Transcription ပြီးပါပြီ။ Local Recap စတင်နေပါသည်..."
+                    generateRecap()
                 }
             } catch (e: Exception) {
+                val message = e.localizedMessage ?: e.javaClass.simpleName
                 runOnUiThread {
-                    status.text = "Whisper Transcription မအောင်မြင်ပါ: ${e.localizedMessage ?: "Model/Audio error"}"
+                    val friendly = "AUTO RECAP မအောင်မြင်ပါ။\n\nအကြောင်းရင်း: $message"
+                    status.text = friendly
+                    recapOutput.text = friendly
+                    android.widget.Toast.makeText(this, friendly, android.widget.Toast.LENGTH_LONG).show()
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle("AUTO RECAP Error")
+                        .setMessage(message)
+                        .setPositiveButton("OK", null)
+                        .show()
                 }
             } finally {
                 wav.delete()
