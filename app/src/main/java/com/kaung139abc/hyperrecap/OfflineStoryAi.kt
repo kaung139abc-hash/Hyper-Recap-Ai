@@ -36,7 +36,7 @@ object OfflineStoryAi {
         val clean = transcript.trim()
         require(clean.length >= 80) { "ဇာတ်လမ်း Transcript မလုံလောက်ပါ။" }
         val model = ensureModel(context.applicationContext, onProgress)
-        ensureRuntime(model, onProgress)
+        ensureRuntime(model, context.applicationContext, onProgress)
 
         try {
             val chunks = splitTranscript(clean)
@@ -117,10 +117,23 @@ object OfflineStoryAi {
         return groups
     }
 
-    private fun ensureRuntime(model: File, onProgress: (String) -> Unit) {
+    private fun ensureRuntime(model: File, context: Context, onProgress: (String) -> Unit) {
         if (modelReady) return
         synchronized(modelLock) {
             if (modelReady) return
+            // Check current free RAM after Whisper processing; do not risk an app crash
+            // while mapping the local GGUF model on a memory-constrained device.
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val memory = android.app.ActivityManager.MemoryInfo()
+            activityManager.getMemoryInfo(memory)
+            val minimumAvailableRam = 480L * 1024L * 1024L
+            if (memory.lowMemory || memory.availMem < minimumAvailableRam) {
+                throw IllegalStateException(
+                    "Offline Story AI အတွက် လက်ရှိ RAM မလုံလောက်ပါ။ App မပိတ်သွားစေရန် Model မတင်သေးပါ။ " +
+                        "အခြား App များပိတ်ပြီး ပြန်စမ်းပါ။ (လွတ်နေသော RAM " +
+                        (memory.availMem / (1024 * 1024)).toString() + " MB)"
+                )
+            }
             onProgress("Offline Story AI Model ကို RAM ထဲသို့ တင်နေသည်။ ပထမအကြိမ် အချိန်ယူနိုင်ပါသည်...")
             configureGeneration(180)
             if (!LlamaBridge.initGenerateModel(model.absolutePath)) {
