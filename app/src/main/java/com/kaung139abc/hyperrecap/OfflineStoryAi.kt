@@ -260,7 +260,7 @@ object OfflineStoryAi {
                     chunks += current.toString()
                     current.setLength(0)
                 }
-                sentence.chunked(CHUNK_CHARS).forEach { chunks += it }
+                chunks += splitLongSentenceAtSafeBoundaries(sentence)
             } else {
                 if (current.isNotEmpty() && current.length + sentence.length + 1 > CHUNK_CHARS) {
                     chunks += current.toString()
@@ -272,6 +272,42 @@ object OfflineStoryAi {
         }
         if (current.isNotEmpty()) chunks += current.toString()
         return chunks
+    }
+
+    /**
+     * Split unusually long Burmese transcript runs without cutting a Unicode
+     * grapheme (base consonant + medials/diacritics). Prefer whitespace near the
+     * end of each chunk, but still make progress for unspaced text.
+     */
+    private fun splitLongSentenceAtSafeBoundaries(sentence: String): List<String> {
+        val iterator = java.text.BreakIterator.getCharacterInstance(java.util.Locale("my"))
+        iterator.setText(sentence)
+        val clusters = ArrayList<String>()
+        var start = iterator.first()
+        var end = iterator.next()
+        while (end != java.text.BreakIterator.DONE) {
+            clusters += sentence.substring(start, end)
+            start = end
+            end = iterator.next()
+        }
+
+        val result = ArrayList<String>()
+        var offset = 0
+        while (offset < clusters.size) {
+            val hardEnd = (offset + CHUNK_CHARS).coerceAtMost(clusters.size)
+            var cut = hardEnd
+            if (hardEnd < clusters.size) {
+                val preferredFloor = offset + (CHUNK_CHARS * 2 / 3)
+                val whitespace = (hardEnd - 1 downTo preferredFloor)
+                    .firstOrNull { clusters[it].isBlank() }
+                if (whitespace != null) cut = whitespace + 1
+            }
+            if (cut <= offset) cut = hardEnd
+            val part = clusters.subList(offset, cut).joinToString("").trim()
+            if (part.isNotBlank()) result += part
+            offset = cut
+        }
+        return result
     }
 
     private fun chatPrompt(system: String, user: String): String =
