@@ -1031,7 +1031,52 @@ class MainActivity : Activity() {
                 }
             }
             if (videoItems.isEmpty()) {
-                videoItems += EditedMediaItem.Builder(MediaItem.fromUri(source)).setRemoveAudio(true).build()
+                // If transcript-derived highlights are unavailable, do not export the
+                // entire movie with only a short recap narration. Create a compact,
+                // evenly distributed fallback montage sized to the narration instead.
+                val sourceRetriever = MediaMetadataRetriever()
+                val sourceDurationMs = try {
+                    sourceRetriever.setDataSource(this, source)
+                    sourceRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                } finally {
+                    sourceRetriever.release()
+                }
+                val narrationRetriever = MediaMetadataRetriever()
+                val narrationDurationMs = try {
+                    narrationRetriever.setDataSource(narrationWav.absolutePath)
+                    narrationRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                } finally {
+                    narrationRetriever.release()
+                }
+                if (sourceDurationMs <= 0L || narrationDurationMs <= 0L) {
+                    throw IllegalStateException("Video/Narration ကြာချိန်ကို ဖတ်မရပါ။")
+                }
+                val clipCount = ((narrationDurationMs + 9_999L) / 10_000L)
+                    .coerceAtLeast(1L).coerceAtMost(600L).toInt()
+                val clipLengthMs = ((narrationDurationMs + clipCount - 1L) / clipCount)
+                    .coerceAtLeast(1_000L).coerceAtMost(sourceDurationMs)
+                for (index in 0 until clipCount) {
+                    val fraction = (index + 0.5) / clipCount.toDouble()
+                    val center = (fraction * sourceDurationMs).toLong().coerceIn(0L, sourceDurationMs - 1L)
+                    val latestStart = (sourceDurationMs - clipLengthMs).coerceAtLeast(0L)
+                    val start = (center - clipLengthMs / 2L).coerceIn(0L, latestStart)
+                    val end = (start + clipLengthMs).coerceAtMost(sourceDurationMs)
+                    if (end > start) {
+                        val clippedItem = MediaItem.Builder()
+                            .setUri(source)
+                            .setClippingConfiguration(
+                                MediaItem.ClippingConfiguration.Builder()
+                                    .setStartPositionMs(start)
+                                    .setEndPositionMs(end)
+                                    .build()
+                            )
+                            .build()
+                        videoItems += EditedMediaItem.Builder(clippedItem).setRemoveAudio(true).build()
+                    }
+                }
+                if (videoItems.isEmpty()) {
+                    throw IllegalStateException("Video မှ Export လုပ်နိုင်သော Clip မရရှိပါ။")
+                }
             }
             val audioItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(narrationWav))).setRemoveVideo(true).build()
             val videoSequence = EditedMediaItemSequence.Builder(videoItems).build()
