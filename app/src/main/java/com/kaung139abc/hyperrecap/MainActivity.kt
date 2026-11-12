@@ -886,6 +886,7 @@ class MainActivity : Activity() {
                 // Without a valid license or internet, the app safely falls back to the on-device draft.
                 var finalRecap = localDraft
                 var recapMode = "Local Offline Recap"
+                var recapVisualContext = ""
                 val savedKey = LicenseManager.savedKey(this)
                 if (savedKey.isNotBlank()) {
                     var visualNotes = ""
@@ -899,6 +900,7 @@ class MainActivity : Activity() {
                             runOnUiThread { status.text = "ရုပ်ပုံ AI မရနိုင်ပါ။ Transcript ကိုအခြေခံပြီး Generative Recap ဆက်လုပ်နေပါသည်..." }
                         }
                     }
+                    recapVisualContext = visualNotes
                     try {
                         runOnUiThread { status.text = "Generative AI က ဇာတ်လမ်းအစမှ အဆုံးအထိ မြန်မာ Recap ရေးသားနေပါသည်..." }
                         finalRecap = CloudAiClient.generateBurmeseRecap(this, source, visualNotes) { message ->
@@ -920,7 +922,7 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     latestRecap = result
                     latestHighlightCues = highlights
-                    latestVisualContext = ""
+                    latestVisualContext = recapVisualContext
                     latestSrt = SubtitleDraft.fromNarration(result)
                     recapOutput.text = result
                     status.text = "✓ $mode ပြီးပါပြီ။"
