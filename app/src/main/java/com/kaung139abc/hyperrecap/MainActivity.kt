@@ -71,6 +71,9 @@ class MainActivity : Activity() {
     private var pendingSubtitleDestination: Uri? = null
     private var pendingNarratedMp4Destination: Uri? = null
     private var pendingNarrationWav: File? = null
+    private var pendingNarrationChunks: List<String> = emptyList()
+    private var pendingNarrationChunkFiles: MutableList<File> = mutableListOf()
+    private var pendingNarrationChunkIndex: Int = 0
     private var activeTransformer: Transformer? = null
     private var latestMyanmarNeuralWav: File? = null
     private var neuralPlayer: MediaPlayer? = null
@@ -549,8 +552,12 @@ class MainActivity : Activity() {
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onError(utteranceId: String?) {
-                    if (utteranceId == "hyper_auto_narration") {
+                    if (utteranceId == "hyper_auto_narration" || utteranceId?.startsWith("hyper_auto_narration_chunk_") == true) {
                         pendingNarrationWav?.delete()
+                        pendingNarrationChunkFiles.forEach { it.delete() }
+                        pendingNarrationChunkFiles.clear()
+                        pendingNarrationChunks = emptyList()
+                        pendingNarrationChunkIndex = 0
                         pendingNarrationWav = null
                         pendingNarratedMp4Destination = null
                     }
@@ -564,18 +571,32 @@ class MainActivity : Activity() {
                     pendingAudioUri = null
                 }
                 override fun onDone(utteranceId: String?) {
-                    if (utteranceId == "hyper_auto_narration") {
-                        val wav = pendingNarrationWav
-                        val destination = pendingNarratedMp4Destination
-                        if (wav == null || destination == null) return
-                        pendingNarrationWav = null
-                        pendingNarratedMp4Destination = null
-                        if (!wav.isFile || wav.length() <= 44L) {
-                            wav.delete()
-                            runOnUiThread { status.text = "TTS ပြီးဆုံးသော်လည်း Narration WAV အလွတ်/မပြည့်စုံပါ။" }
-                            return
+                    if (utteranceId?.startsWith("hyper_auto_narration_chunk_") == true) {
+                        val completedIndex = utteranceId.substringAfterLast("_").toIntOrNull() ?: return
+                        if (completedIndex != pendingNarrationChunkIndex) return
+                        pendingNarrationChunkIndex++
+                        if (pendingNarrationChunkIndex < pendingNarrationChunks.size) {
+                            try {
+                                synthesizeNextNarrationChunk()
+                            } catch (e: Exception) {
+                                cleanupPendingNarration()
+                                runOnUiThread { status.text = "နောက်ထပ် အသံအပိုင်းဖန်တီးမရပါ: " + (e.localizedMessage ?: "TTS error") }
+                            }
+                        } else {
+                            val wav = pendingNarrationWav ?: return
+                            val destination = pendingNarratedMp4Destination ?: return
+                            Thread {
+                                try {
+                                    mergeNarrationWavChunks(pendingNarrationChunkFiles, wav)
+                                    cleanupPendingNarration(keepFinalWav = true)
+                                    runOnUiThread { exportNarratedMp4(destination, wav) }
+                                } catch (e: Exception) {
+                                    wav.delete()
+                                    cleanupPendingNarration()
+                                    runOnUiThread { status.text = "Narration WAV ပေါင်းစပ်မရပါ: " + (e.localizedMessage ?: "WAV error") }
+                                }
+                            }.start()
                         }
-                        runOnUiThread { exportNarratedMp4(destination, wav) }
                         return
                     }
                     if (utteranceId != "hyper_recap_audio_export") return
@@ -937,28 +958,112 @@ class MainActivity : Activity() {
             status.text = "Recap သို့မဟုတ် Video မရှိပါ။"
             return
         }
-        if (latestRecap.length > TextToSpeech.getMaxSpeechInputLength()) {
-            status.text = "Recap စာသားသည် ဖုန်း TTS Engine ၏ စာသားကန့်သတ်ချက်ထက် ရှည်နေပါသည်။"
-            return
-        }
         val wav = File(cacheDir, "hyper_auto_voice_${System.currentTimeMillis()}.wav")
         pendingNarratedMp4Destination = destination
         pendingNarrationWav = wav
+        pendingNarrationChunks = splitNarrationIntoChunks(latestRecap)
+        pendingNarrationChunkFiles = mutableListOf()
+        pendingNarrationChunkIndex = 0
         try {
+            if (pendingNarrationChunks.isEmpty()) throw IllegalStateException("Recap စာသားမရှိပါ။")
             engine.setSpeechRate(0.95f)
             engine.setPitch(1.0f)
-            val result = engine.synthesizeToFile(latestRecap, Bundle(), wav, "hyper_auto_narration")
-            if (result != TextToSpeech.SUCCESS) {
-                wav.delete()
-                pendingNarrationWav = null
-                pendingNarratedMp4Destination = null
-                status.text = "ဤဖုန်း TTS Engine က WAV ဖိုင်ထုတ်ပေးမှုကို မပံ့ပိုးပါ။"
-            } else status.text = "မြန်မာ Recap အသံဖန်တီးနေပါသည်..."
+            status.text = "မြန်မာ Recap အသံ " + pendingNarrationChunks.size + " ပိုင်း ဖန်တီးနေပါသည်..."
+            synthesizeNextNarrationChunk()
         } catch (e: Exception) {
             wav.delete()
-            pendingNarrationWav = null
-            pendingNarratedMp4Destination = null
+            cleanupPendingNarration()
             status.text = "အသံဖန်တီးမရပါ: " + (e.localizedMessage ?: "TTS error")
+        }
+    }
+
+    private fun cleanupPendingNarration(keepFinalWav: Boolean = false) {
+        pendingNarrationChunkFiles.forEach { it.delete() }
+        pendingNarrationChunkFiles.clear()
+        pendingNarrationChunks = emptyList()
+        pendingNarrationChunkIndex = 0
+        if (!keepFinalWav) pendingNarrationWav?.delete()
+        pendingNarrationWav = null
+        pendingNarratedMp4Destination = null
+    }
+
+    private fun splitNarrationIntoChunks(text: String, maxChars: Int = 3000): List<String> {
+        val chunks = mutableListOf<String>()
+        var current = StringBuilder()
+        for (sentence in text.trim().split(Regex("(?<=[။.!?])\\s+"))) {
+            var part = sentence.trim()
+            while (part.length > maxChars) {
+                val cut = part.lastIndexOf(' ', maxChars).takeIf { it > maxChars / 2 } ?: maxChars
+                if (current.isNotEmpty()) {
+                    chunks += current.toString().trim()
+                    current = StringBuilder()
+                }
+                chunks += part.substring(0, cut).trim()
+                part = part.substring(cut).trim()
+            }
+            if (part.isNotEmpty()) {
+                if (current.isNotEmpty() && current.length + part.length + 1 > maxChars) {
+                    chunks += current.toString().trim()
+                    current = StringBuilder()
+                }
+                if (current.isNotEmpty()) current.append(' ')
+                current.append(part)
+            }
+        }
+        if (current.isNotEmpty()) chunks += current.toString().trim()
+        return chunks.filter { it.isNotBlank() }
+    }
+
+    private fun synthesizeNextNarrationChunk() {
+        val engine = tts ?: throw IllegalStateException("TTS Engine မရရှိပါ။")
+        val index = pendingNarrationChunkIndex
+        if (index !in pendingNarrationChunks.indices) throw IllegalStateException("Narration အပိုင်း မရှိပါ။")
+        val partFile = File(cacheDir, "hyper_voice_part_" + System.currentTimeMillis() + "_" + index + ".wav")
+        partFile.delete()
+        pendingNarrationChunkFiles += partFile
+        val result = engine.synthesizeToFile(
+            pendingNarrationChunks[index], Bundle(), partFile, "hyper_auto_narration_chunk_" + index
+        )
+        if (result != TextToSpeech.SUCCESS) {
+            partFile.delete()
+            pendingNarrationChunkFiles.remove(partFile)
+            throw IllegalStateException("TTS က အသံအပိုင်း " + (index + 1) + " ကို မဖန်တီးနိုင်ပါ။")
+        }
+    }
+
+    private fun mergeNarrationWavChunks(parts: List<File>, destination: File) {
+        if (parts.isEmpty()) throw IllegalStateException("Narration အသံအပိုင်း မရှိပါ။")
+        val pcmParts = mutableListOf<ByteArray>()
+        var referenceFormat: ByteArray? = null
+        var referenceHeader: ByteArray? = null
+        for (part in parts) {
+            if (!part.isFile || part.length() <= 44L) throw IllegalStateException("အသံအပိုင်း WAV မပြည့်စုံပါ။")
+            val bytes = part.readBytes()
+            if (bytes.size < 44 || String(bytes, 0, 4, Charsets.US_ASCII) != "RIFF" ||
+                String(bytes, 8, 4, Charsets.US_ASCII) != "WAVE" ||
+                String(bytes, 12, 4, Charsets.US_ASCII) != "fmt " ||
+                String(bytes, 36, 4, Charsets.US_ASCII) != "data") {
+                throw IllegalStateException("TTS WAV ဖိုင်ပုံစံကို မပံ့ပိုးပါ။")
+            }
+            val header = bytes.copyOfRange(0, 44)
+            if (referenceFormat == null) {
+                referenceFormat = header.copyOfRange(12, 36)
+                referenceHeader = header
+            } else if (!referenceFormat!!.contentEquals(header.copyOfRange(12, 36))) {
+                throw IllegalStateException("အသံအပိုင်းများ၏ WAV format မတူညီပါ။")
+            }
+            val dataSize = ByteBuffer.wrap(bytes, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+            if (dataSize < 0 || dataSize > bytes.size - 44) throw IllegalStateException("WAV data size မမှန်ပါ။")
+            pcmParts += bytes.copyOfRange(44, 44 + dataSize)
+        }
+        val totalData = pcmParts.sumOf { it.size.toLong() }
+        if (totalData > Int.MAX_VALUE - 44L) throw IllegalStateException("Narration WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
+        val header = referenceHeader!!.copyOf()
+        ByteBuffer.wrap(header, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt((36L + totalData).toInt())
+        ByteBuffer.wrap(header, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(totalData.toInt())
+        destination.outputStream().use { output ->
+            output.write(header)
+            pcmParts.forEach { output.write(it) }
         }
     }
 
