@@ -40,9 +40,16 @@ object OfflineStoryAi {
 
         try {
             val chunks = splitTranscript(clean)
+            if (chunks.isEmpty()) throw IllegalStateException("Transcript ကို အပိုင်းခွဲမရပါ။")
+            // A two-hour movie can create thousands of small transcript fragments.
+            // Keep a visible, bounded progress counter and check cancellation between
+            // inference calls so Android lifecycle cancellation can stop long jobs.
             val evidenceSummaries = ArrayList<String>(chunks.size)
             configureGeneration(180)
             chunks.forEachIndexed { index, chunk ->
+                if (Thread.currentThread().isInterrupted) {
+                    throw InterruptedException("Offline Story AI လုပ်ဆောင်မှုကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
+                }
                 onProgress("Offline Story AI — ဇာတ်လမ်းအပိုင်း ${index + 1}/${chunks.size} ကို နားလည်နေသည်...")
                 val prompt = chatPrompt(
                     system = "You are a careful movie-story analyst. Understand events, characters, motivations, cause and effect, conflicts and turning points. Never invent events. Reply only in natural Burmese. If the source is English, translate its meaning into Burmese. /no_think",
@@ -64,6 +71,9 @@ object OfflineStoryAi {
                 }
                 val reduced = ArrayList<String>(groups.size)
                 groups.forEachIndexed { index, group ->
+                    if (Thread.currentThread().isInterrupted) {
+                        throw InterruptedException("Offline Story AI အဆင့်လိုက်ပေါင်းစပ်မှုကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
+                    }
                     onProgress("Offline Story AI — ရှည်လျားသောဇာတ်လမ်းကို အဆင့်လိုက်ပေါင်းစပ်နေသည် ($reductionRound / ${index + 1})...")
                     val prompt = chatPrompt(
                         system = "You are a precise Burmese story editor. Merge related events, preserve chronology, characters, motivations and cause-and-effect. Never invent details. /no_think",
@@ -79,6 +89,9 @@ object OfflineStoryAi {
     
             if (storyNotes.sumOf { it.length } > 2_600) {
                 throw IllegalStateException("ဇာတ်လမ်းအကျဉ်းချုပ်သည် Offline AI context ထက် ရှည်နေပါသည်။ Recap ကို အပိုင်းခွဲပြီး လုပ်ဆောင်ပါ။")
+            }
+            if (Thread.currentThread().isInterrupted) {
+                throw InterruptedException("Offline Story AI နောက်ဆုံးရေးသားမှုကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
             }
             onProgress("Offline Story AI — ဇာတ်လမ်းအစ၊ အလယ်၊ အဆုံးကို ပေါင်းစပ်ရေးသားနေသည်...")
             configureGeneration(520)
