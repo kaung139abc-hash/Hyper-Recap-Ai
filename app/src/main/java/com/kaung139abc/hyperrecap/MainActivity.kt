@@ -556,23 +556,26 @@ class MainActivity : Activity() {
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onError(utteranceId: String?) {
-                    if (utteranceId == "hyper_auto_narration" || utteranceId?.startsWith("hyper_auto_narration_chunk_") == true) {
-                        pendingNarrationWav?.delete()
-                        pendingNarrationChunkFiles.forEach { it.delete() }
-                        pendingNarrationChunkFiles.clear()
-                        pendingNarrationChunks = emptyList()
-                        pendingNarrationChunkIndex = 0
-                        pendingNarrationWav = null
-                        pendingNarratedMp4Destination = null
-                    }
-                    runOnUiThread {
-                        status.text = if (utteranceId == "hyper_auto_narration")
-                            "မြန်မာ TTS က Narration WAV မထုတ်နိုင်ပါ။ Burmese voice data/Internet ကို စစ်ဆေးပါ။"
-                        else "အသံဖိုင်ဖန်တီးရာတွင် အမှားဖြစ်နေပါသည်။"
+                    val narrationFailed = utteranceId == "hyper_auto_narration" ||
+                        utteranceId?.startsWith("hyper_auto_narration_chunk_") == true
+                    if (narrationFailed) {
+                        // TTS callbacks run off the UI thread. Clear every pending file and
+                        // reset the export state so a failed chunk cannot leave the screen
+                        // awake or make the next export look permanently busy.
+                        cleanupPendingNarration()
                     }
                     pendingAudioFile?.delete()
                     pendingAudioFile = null
                     pendingAudioUri = null
+                    runOnUiThread {
+                        if (narrationFailed) {
+                            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                        status.text = if (utteranceId == "hyper_auto_narration" ||
+                            utteranceId?.startsWith("hyper_auto_narration_chunk_") == true)
+                            "မြန်မာ TTS က Narration WAV မထုတ်နိုင်ပါ။ Burmese voice data/Internet ကို စစ်ဆေးပါ။"
+                        else "အသံဖိုင်ဖန်တီးရာတွင် အမှားဖြစ်နေပါသည်။"
+                    }
                 }
                 override fun onDone(utteranceId: String?) {
                     if (utteranceId?.startsWith("hyper_auto_narration_chunk_") == true) {
