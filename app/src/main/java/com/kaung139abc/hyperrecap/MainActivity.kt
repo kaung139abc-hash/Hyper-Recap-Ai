@@ -1033,37 +1033,58 @@ class MainActivity : Activity() {
 
     private fun mergeNarrationWavChunks(parts: List<File>, destination: File) {
         if (parts.isEmpty()) throw IllegalStateException("Narration အသံအပိုင်း မရှိပါ။")
-        val pcmParts = mutableListOf<ByteArray>()
         var referenceFormat: ByteArray? = null
-        var referenceHeader: ByteArray? = null
+        var outputHeader: ByteArray? = null
+        var totalData = 0L
+        val dataSizes = mutableListOf<Long>()
         for (part in parts) {
             if (!part.isFile || part.length() <= 44L) throw IllegalStateException("အသံအပိုင်း WAV မပြည့်စုံပါ။")
-            val bytes = part.readBytes()
-            if (bytes.size < 44 || String(bytes, 0, 4, Charsets.US_ASCII) != "RIFF" ||
-                String(bytes, 8, 4, Charsets.US_ASCII) != "WAVE" ||
-                String(bytes, 12, 4, Charsets.US_ASCII) != "fmt " ||
-                String(bytes, 36, 4, Charsets.US_ASCII) != "data") {
+            val header = ByteArray(44)
+            java.io.RandomAccessFile(part, "r").use { input ->
+                input.readFully(header)
+            }
+            if (String(header, 0, 4, Charsets.US_ASCII) != "RIFF" ||
+                String(header, 8, 4, Charsets.US_ASCII) != "WAVE" ||
+                String(header, 12, 4, Charsets.US_ASCII) != "fmt " ||
+                String(header, 36, 4, Charsets.US_ASCII) != "data") {
                 throw IllegalStateException("TTS WAV ဖိုင်ပုံစံကို မပံ့ပိုးပါ။")
             }
-            val header = bytes.copyOfRange(0, 44)
+            val format = header.copyOfRange(12, 36)
             if (referenceFormat == null) {
-                referenceFormat = header.copyOfRange(12, 36)
-                referenceHeader = header
-            } else if (!referenceFormat!!.contentEquals(header.copyOfRange(12, 36))) {
+                referenceFormat = format
+                outputHeader = header
+            } else if (!referenceFormat!!.contentEquals(format)) {
                 throw IllegalStateException("အသံအပိုင်းများ၏ WAV format မတူညီပါ။")
             }
-            val dataSize = ByteBuffer.wrap(bytes, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int
-            if (dataSize < 0 || dataSize > bytes.size - 44) throw IllegalStateException("WAV data size မမှန်ပါ။")
-            pcmParts += bytes.copyOfRange(44, 44 + dataSize)
+            val dataSize = ByteBuffer.wrap(header, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int.toLong()
+            if (dataSize < 0L || dataSize > part.length() - 44L) throw IllegalStateException("WAV data size မမှန်ပါ။")
+            dataSizes += dataSize
+            totalData += dataSize
+            if (totalData > Int.MAX_VALUE - 44L) throw IllegalStateException("Narration WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
         }
-        val totalData = pcmParts.sumOf { it.size.toLong() }
-        if (totalData > Int.MAX_VALUE - 44L) throw IllegalStateException("Narration WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
-        val header = referenceHeader!!.copyOf()
+        val header = outputHeader!!.copyOf()
         ByteBuffer.wrap(header, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt((36L + totalData).toInt())
         ByteBuffer.wrap(header, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(totalData.toInt())
-        destination.outputStream().use { output ->
+        destination.outputStream().buffered().use { output ->
             output.write(header)
-            pcmParts.forEach { output.write(it) }
+            val buffer = ByteArray(64 * 1024)
+            parts.forEachIndexed { index, part ->
+                java.io.FileInputStream(part).use { input ->
+                    var skipped = 0L
+                    while (skipped < 44L) {
+                        val count = input.skip(44L - skipped)
+                        if (count <= 0L) throw IllegalStateException("WAV header ကို ကျော်မရပါ။")
+                        skipped += count
+                    }
+                    var remaining = dataSizes[index]
+                    while (remaining > 0L) {
+                        val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                        if (count <= 0) throw IllegalStateException("WAV audio data မပြည့်စုံပါ။")
+                        output.write(buffer, 0, count)
+                        remaining -= count.toLong()
+                    }
+                }
+            }
         }
     }
 
