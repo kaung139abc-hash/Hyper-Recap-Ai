@@ -135,7 +135,7 @@ class MainActivity : Activity() {
         }
         try {
             startActivity(SocialLinkSupport.openIntent(link))
-            status.text = "${link.platform.label} ကို ဖွင့်လိုက်ပါပြီ။ Platform က ခွင့်ပြုထားသောနည်းဖြင့် Video ကို သိမ်းပြီးနောက် ဖုန်းထဲမှ Video ရွေးပါ။ Login/DRM ကန့်သတ်ချက်များကို ကျော်ဖြတ်ခြင်း မလုပ်ပါ။"
+            status.text = "${link.platform.label} ကို ဖွင့်လိုက်ပါပြီ။ Platform ၏ Save/Download ခွင့်ပြုချက်ဖြင့် Video ကို သိမ်းပြီး Share > Hyper Recap AI ကိုရွေးပါ။ Login/DRM ကန့်သတ်ချက်များကို ကျော်ဖြတ်ခြင်း မလုပ်ပါ။"
         } catch (e: Exception) {
             status.text = "Link ဖွင့်မရပါ: ${e.localizedMessage ?: "Browser မတွေ့ပါ"}"
         }
@@ -370,7 +370,7 @@ class MainActivity : Activity() {
         root.addView(status)
 
         val note = label(
-            "မှတ်ချက် — Whisper multilingual Base int8 Model ကို ပထမဆုံးအသုံးပြုချိန်တွင် Internet ဖြင့် 208 MB ခန့် Download လုပ်ရမည်။ ထို့နောက် Speech-to-Text ကို Offline လုပ်နိုင်သည်။ YouTube/Facebook/TikTok/Instagram Link များကို Official App/Browser ဖွင့်ပေးခြင်းသာ ရရှိပြီး Platform က ခွင့်ပြုသော Video ဖိုင်ကို ဖုန်းထဲသိမ်းပြီးမှ ရွေးပါ။ MP4 Subtitle Export သည် Video ကို ပြန် Encode လုပ်သောကြောင့် အချိန်နှင့် Battery ပိုသုံးနိုင်သည်။",
+            "မှတ်ချက် — Whisper multilingual Base int8 Model ကို ပထမဆုံးအသုံးပြုချိန်တွင် Internet ဖြင့် 208 MB ခန့် Download လုပ်ရမည်။ ထို့နောက် Speech-to-Text ကို Offline လုပ်နိုင်သည်။ YouTube/Facebook/TikTok/Instagram Link များကို Official App/Browser ဖြင့်ဖွင့်ပါ။ Platform က ခွင့်ပြုသော Save/Download ပြီးနောက် Share > Hyper Recap AI ဖြင့် Video ကို တိုက်ရိုက်လက်ခံနိုင်သည်။ MP4 Subtitle Export သည် Video ကို ပြန် Encode လုပ်သောကြောင့် အချိန်နှင့် Battery ပိုသုံးနိုင်သည်။",
             13f, 0xFFFFD28A.toInt()
         )
         note.setPadding(0, 28, 0, 0)
