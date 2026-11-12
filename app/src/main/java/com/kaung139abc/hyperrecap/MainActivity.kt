@@ -1139,10 +1139,15 @@ class MainActivity : Activity() {
                 }
                 val perClipMs = ((narrationDurationMs + clipCount - 1L) / clipCount)
                     .coerceAtLeast(1_000L)
-                chosen.forEach { cue ->
+                chosen.forEachIndexed { index, cue ->
+                    // The final clip must use only the remaining narration duration;
+                    // otherwise the video sequence can outlast the narration and leave
+                    // an unintended silent tail in the exported MP4.
+                    val remainingMs = narrationDurationMs - index.toLong() * perClipMs
+                    val clipLength = minOf(perClipMs, remainingMs).coerceAtLeast(1L)
+                        .coerceAtMost(sourceDurationMs)
                     val center = ((cue.startMs + cue.endMs) / 2L)
                         .coerceIn(0L, sourceDurationMs - 1L)
-                    val clipLength = perClipMs.coerceAtMost(sourceDurationMs)
                     val latestStart = (sourceDurationMs - clipLength).coerceAtLeast(0L)
                     val start = (center - clipLength / 2L).coerceIn(0L, latestStart)
                     val end = (start + clipLength).coerceAtMost(sourceDurationMs)
@@ -1186,11 +1191,14 @@ class MainActivity : Activity() {
                 val clipLengthMs = ((narrationDurationMs + clipCount - 1L) / clipCount)
                     .coerceAtLeast(1_000L).coerceAtMost(sourceDurationMs)
                 for (index in 0 until clipCount) {
+                    val remainingMs = narrationDurationMs - index.toLong() * clipLengthMs
+                    val actualClipLengthMs = minOf(clipLengthMs, remainingMs)
+                        .coerceAtLeast(1L).coerceAtMost(sourceDurationMs)
                     val fraction = (index + 0.5) / clipCount.toDouble()
                     val center = (fraction * sourceDurationMs).toLong().coerceIn(0L, sourceDurationMs - 1L)
-                    val latestStart = (sourceDurationMs - clipLengthMs).coerceAtLeast(0L)
-                    val start = (center - clipLengthMs / 2L).coerceIn(0L, latestStart)
-                    val end = (start + clipLengthMs).coerceAtMost(sourceDurationMs)
+                    val latestStart = (sourceDurationMs - actualClipLengthMs).coerceAtLeast(0L)
+                    val start = (center - actualClipLengthMs / 2L).coerceIn(0L, latestStart)
+                    val end = (start + actualClipLengthMs).coerceAtMost(sourceDurationMs)
                     if (end > start) {
                         val clippedItem = MediaItem.Builder()
                             .setUri(source)
