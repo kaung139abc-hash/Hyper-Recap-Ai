@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object LicenseManager {
-    const val SERVER_URL = "https://kaung139abc.workers.dev"
+    const val SERVER_URL = "https://hyper-recap-license.kaung139abc.workers.dev"
     private const val PREFS = "hyper_recap_license"
     private const val KEY = "license_key"
     private const val VALIDATED_AT = "validated_at"
