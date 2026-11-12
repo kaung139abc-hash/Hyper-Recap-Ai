@@ -295,10 +295,7 @@ class MainActivity : Activity() {
         root.addView(voicePicker, matchWidth())
         voiceInfo = label("အသံစာရင်း ဖတ်နေပါသည်...", 12f, 0xFFB8C0D9.toInt())
         root.addView(voiceInfo, matchWidth())
-        root.addView(Button(this).apply {
-            text = "Commercial Burmese Neural Voice ရွေးရန် (Online)"
-            setOnClickListener { requireLicense { chooseCommercialMyanmarVoice() } }
-        }, matchWidth())
+        root.addView(label("အသုံးပြုမည့်အသံများသည် ဖုန်းထဲတွင် ရှိပြီး Internet မလိုသော မြန်မာ Voice များသာ ဖြစ်သည်။", 12f, 0xFFB8C0D9.toInt()))
         root.addView(label("အသံမြန်နှုန်း", 13f, 0xFFFFFFFF.toInt()))
         speechRate = SeekBar(this).apply { max = 150; progress = 50 }
         root.addView(speechRate, matchWidth())
@@ -524,7 +521,7 @@ class MainActivity : Activity() {
                 val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
                 availableVoices = voices.filter { voice ->
                     val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
-                    voice.locale.language == "my" && excluded.none { identity.contains(it) }
+                    voice.locale.language == "my" && !voice.isNetworkConnectionRequired && excluded.none { identity.contains(it) }
                 }.sortedWith(compareBy<Voice>(
                     { if (it.isNetworkConnectionRequired) 1 else 0 },
                     { -it.quality }, { it.locale.displayName }, { it.name }
@@ -540,7 +537,7 @@ class MainActivity : Activity() {
                 if (labels.isNotEmpty()) {
                     voicePicker.setSelection(0)
                     tts?.voice = availableVoices[0]
-                    voiceInfo.text = "အသံ ${labels.size} မျိုး ရရှိသည်။ Settings မှ ပြန်လာတိုင်း စာရင်းကို အသစ်ပြန်ဖတ်ထားသည်။"
+                    voiceInfo.text = "Offline မြန်မာအသံ ${labels.size} မျိုး ရရှိသည်။ Network voice များကို ဖယ်ထားသည်။"
                 } else {
                     voiceInfo.text = "TTS အသံမတွေ့ပါ။ Android Text-to-speech Settings မှ Voice data ထည့်ပါ။"
                 }
@@ -632,7 +629,7 @@ class MainActivity : Activity() {
                 availableVoices = (tts?.voices ?: emptySet())
                     .filter { voice ->
                         val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
-                        voice.locale.language == "my" && excluded.none { identity.contains(it) }
+                        voice.locale.language == "my" && !voice.isNetworkConnectionRequired && excluded.none { identity.contains(it) }
                     }
                     .sortedWith(compareBy<Voice>({ if (it.isNetworkConnectionRequired) 1 else 0 }, { -it.quality }, { it.name }))
                 val labels = availableVoices.map { voice ->
@@ -641,7 +638,7 @@ class MainActivity : Activity() {
                 }
                 if (labels.isEmpty()) {
                     voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, listOf("အသုံးပြုနိုင်သော အသံမရှိပါ"))
-                    voiceInfo.text = "မြန်မာဘာသာ TTS အသံ မတွေ့ပါ။ အခြားဘာသာအသံကို အစားထိုးမသုံးပါ။ လူသားဆန်သော မြန်မာ Neural Voice ထည့်သွင်းရန် လိုအပ်နေပါသည်။"
+                    voiceInfo.text = "Offline မြန်မာ TTS အသံ မတွေ့ပါ။ Online voice သို့မဟုတ် အခြားဘာသာအသံကို အစားထိုးမသုံးပါ။"
                 } else {
                     voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
                     voicePicker.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
@@ -656,7 +653,7 @@ class MainActivity : Activity() {
                             }
                         }
                     }
-                    voiceInfo.text = "မြန်မာဘာသာအသံ ${labels.size} မျိုးသာ ပြထားသည်။ လူသားဆန်မှုနှင့် အသံကြည်လင်မှုသည် ဖုန်း TTS Engine ပေါ်မူတည်ပါသည်။"
+                    voiceInfo.text = "Offline မြန်မာအသံ ${labels.size} မျိုးသာ ပြထားသည်။ အသံအရည်အသွေးသည် ဖုန်း TTS Engine ပေါ်မူတည်ပါသည်။"
                 }
             } catch (e: Exception) {
                 voiceInfo.text = "အသံစာရင်း ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}"
