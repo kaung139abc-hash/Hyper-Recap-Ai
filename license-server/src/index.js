@@ -10,7 +10,7 @@ export default {
   const url=new URL(req.url), path=url.pathname;
   const declaredLength=Number(req.headers.get("Content-Length")||0);
   if(declaredLength>150_000) return json({error:"Request body too large"},413);
-  if(path==="/health") return json({ok:true,service:"Hyper Recap AI License Server",aiConfigured:!!env.AI,databaseConfigured:!!env.DB,adminConfigured:!!env.ADMIN_SECRET});
+  if(path==="/health") return json({ok:true,service:"Hyper Recap AI License Server",aiConfigured:!!env.AI,databaseConfigured:!!env.DB,adminConfigured:!!env.ADMIN_SECRET,elevenLabsConfigured:!!env.ELEVENLABS_API_KEY});
   if(req.method==="GET" && (path==="/admin" || path==="/admin.html")) {
    return env.ASSETS.fetch(new Request(new URL("/admin.html",url),req));
   }
@@ -31,6 +31,43 @@ export default {
     await env.DB.prepare("UPDATE licenses SET devices_json=? WHERE id=?").bind(JSON.stringify(devices),row.id).run();
    }
    return json({valid:true,plan:row.plan,expiresAt:row.expires_at,deviceLimit:row.device_limit});
+  }
+  if(path==="/v1/ai/voices" || path==="/v1/ai/tts"){
+   if(!env.ELEVENLABS_API_KEY) return json({error:"Commercial Burmese Neural Voice မဖွင့်ရသေးပါ။ Worker secret ELEVENLABS_API_KEY ထည့်ရန်လိုသည်။"},503);
+   if(typeof b.licenseKey!=="string" || typeof b.deviceId!=="string") return json({error:"licenseKey and deviceId are required"},400);
+   const digest=await hash(b.licenseKey.trim().toUpperCase());
+   const license=await env.DB.prepare("SELECT * FROM licenses WHERE key_hash=?").bind(digest).first();
+   if(!license || license.status!=="active") return json({error:"INVALID_OR_REVOKED"},403);
+   if(license.expires_at && (!Number.isFinite(Date.parse(license.expires_at)) || Date.parse(license.expires_at)<=Date.now())) return json({error:"EXPIRED"},403);
+   let devices=[]; try{devices=JSON.parse(license.devices_json||"[]")}catch{}
+   if(!Array.isArray(devices) || !devices.includes(b.deviceId)) return json({error:"DEVICE_NOT_ACTIVATED"},403);
+   if(path==="/v1/ai/voices"){
+    try{
+     const response=await fetch("https://api.elevenlabs.io/v2/voices?page_size=100&show_legacy=true",{headers:{"xi-api-key":env.ELEVENLABS_API_KEY}});
+     const payload=await response.json();
+     if(!response.ok) return json({error:"ElevenLabs voice list failed: "+String(payload?.detail?.message||payload?.detail||response.status).slice(0,180)},502);
+     const voices=(Array.isArray(payload.voices)?payload.voices:[]).filter(v=>{
+      const langs=Array.isArray(v.verified_languages)?v.verified_languages:[];
+      const supportsMyanmar=langs.some(l=>/^my(?:-|$)/i.test(String(l.language_id||"")) || /burmese|myanmar/i.test(String(l.language||"")));
+      const name=String(v.name||"").toLowerCase();
+      return supportsMyanmar && !name.includes("thiha") && !name.includes("nilar");
+     }).map(v=>({id:String(v.voice_id),name:String(v.name||"Myanmar Voice"),gender:String(v.labels?.gender||"Unknown")}));
+     return json({ok:true,voices,provider:"ElevenLabs",model:"eleven_multilingual_v2"});
+    }catch(error){return json({error:"ElevenLabs voice list unavailable: "+String(error?.message||error).slice(0,180)},502);}
+   }
+   if(typeof b.text!=="string" || b.text.trim().length<5 || b.text.length>4500 || typeof b.voiceId!=="string" || !/^[A-Za-z0-9_-]{5,100}$/.test(b.voiceId)) return json({error:"text (5-4500 chars) and valid voiceId are required"},400);
+   try{
+    const response=await fetch("https://api.elevenlabs.io/v1/text-to-speech/"+encodeURIComponent(b.voiceId)+"?output_format=mp3_44100_128",{
+     method:"POST",
+     headers:{"xi-api-key":env.ELEVENLABS_API_KEY,"Content-Type":"application/json","Accept":"audio/mpeg"},
+     body:JSON.stringify({text:b.text.trim(),model_id:"eleven_multilingual_v2",voice_settings:{stability:0.48,similarity_boost:0.78,style:0.22,use_speaker_boost:true}})
+    });
+    if(!response.ok){
+     const detail=(await response.text()).slice(0,300);
+     return json({error:"ElevenLabs speech synthesis failed: "+detail},502);
+    }
+    return new Response(response.body,{status:200,headers:{...cors,"Content-Type":"audio/mpeg","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+   }catch(error){return json({error:"ElevenLabs speech synthesis unavailable: "+String(error?.message||error).slice(0,180)},502);}
   }
   if(path==="/v1/ai/vision"){
    if(!env.AI) return json({error:"AI binding is not configured"},503);

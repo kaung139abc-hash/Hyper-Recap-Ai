@@ -78,6 +78,9 @@ class MainActivity : Activity() {
     private var latestMyanmarNeuralWav: File? = null
     private var neuralPlayer: MediaPlayer? = null
     @Volatile private var neuralVoiceInProgress = false
+    @Volatile private var commercialVoiceLoading = false
+    private var selectedCommercialVoiceId: String? = null
+    private var selectedCommercialVoiceName: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -292,6 +295,10 @@ class MainActivity : Activity() {
         root.addView(voicePicker, matchWidth())
         voiceInfo = label("အသံစာရင်း ဖတ်နေပါသည်...", 12f, 0xFFB8C0D9.toInt())
         root.addView(voiceInfo, matchWidth())
+        root.addView(Button(this).apply {
+            text = "Commercial Burmese Neural Voice ရွေးရန် (Online)"
+            setOnClickListener { requireLicense { chooseCommercialMyanmarVoice() } }
+        }, matchWidth())
         root.addView(label("အသံမြန်နှုန်း", 13f, 0xFFFFFFFF.toInt()))
         speechRate = SeekBar(this).apply { max = 150; progress = 50 }
         root.addView(speechRate, matchWidth())
@@ -659,6 +666,46 @@ class MainActivity : Activity() {
 
 
 
+    private fun chooseCommercialMyanmarVoice() {
+        if (commercialVoiceLoading) {
+            status.text = "မြန်မာ Neural Voice စာရင်း ဖတ်နေဆဲပါ။"
+            return
+        }
+        commercialVoiceLoading = true
+        status.text = "စီးပွားဖြစ် Burmese Neural Voice များကို ရှာဖွေနေပါသည်..."
+        Thread {
+            try {
+                val voices = CloudAiClient.fetchCommercialMyanmarVoices(this)
+                runOnUiThread {
+                    if (voices.isEmpty()) {
+                        status.text = "Burmese အဖြစ် အတည်ပြုထားသော Commercial Voice မတွေ့ပါ။ Worker တွင် ELEVENLABS_API_KEY နှင့် Burmese voice access ကို စစ်ဆေးပါ။"
+                    } else {
+                        val labels = voices.map { "${it.name} — ${it.gender}" }.toTypedArray()
+                        val selected = voices.indexOfFirst { it.id == selectedCommercialVoiceId }.coerceAtLeast(0)
+                        android.app.AlertDialog.Builder(this)
+                            .setTitle("မြန်မာ Neural Voice ရွေးချယ်ပါ")
+                            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                                val voice = voices[which]
+                                selectedCommercialVoiceId = voice.id
+                                selectedCommercialVoiceName = voice.name
+                                voiceInfo.text = "Commercial Neural Voice: ${voice.name} (${voice.gender}) — Online"
+                                status.text = "မြန်မာ Neural Voice ရွေးပြီးပါပြီ။ Recap MP4 ထုတ်ချိန်တွင် ဒီအသံကို အသုံးပြုမည်။"
+                                dialog.dismiss()
+                            }
+                            .setNegativeButton("ပိတ်မည်", null)
+                            .show()
+                    }
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    status.text = "Commercial Neural Voice မရနိုင်ပါ: ${error.localizedMessage ?: "Server/API error"}"
+                }
+            } finally {
+                commercialVoiceLoading = false
+            }
+        }.start()
+    }
+
     private fun generateMyanmarNeuralVoice() {
         if (latestRecap.isBlank()) {
             status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
@@ -975,8 +1022,9 @@ class MainActivity : Activity() {
 
     private fun requestAutoNarratedMp4Destination() {
         if (selectedVideoUri == null || latestRecap.isBlank()) return
-        if (tts == null || availableVoices.isEmpty() || tts?.voice?.locale?.language != "my") {
-            status.text = "မြန်မာ TTS အသံမရရှိပါ။ ဖုန်း Settings > Text-to-speech တွင် Burmese voice ထည့်သွင်းပြီး ပြန်ရွေးပါ။"
+        if (selectedCommercialVoiceId.isNullOrBlank() &&
+            (tts == null || availableVoices.isEmpty() || tts?.voice?.locale?.language != "my")) {
+            status.text = "မြန်မာ TTS အသံမရရှိပါ။ Commercial Neural Voice ရွေးပါ သို့မဟုတ် ဖုန်းထဲ Burmese voice ထည့်ပါ။"
             return
         }
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -988,6 +1036,31 @@ class MainActivity : Activity() {
     }
 
     private fun beginAutomaticNarrationExport(destination: Uri) {
+        val commercialVoiceId = selectedCommercialVoiceId
+        if (!commercialVoiceId.isNullOrBlank()) {
+            if (latestRecap.isBlank() || selectedVideoUri == null) {
+                status.text = "Recap သို့မဟုတ် Video မရှိပါ။"
+                return
+            }
+            val audioFile = File(cacheDir, "hyper_commercial_myanmar_voice_${System.currentTimeMillis()}.mp3")
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            status.text = "Commercial မြန်မာ Neural Voice ဖြင့် MP3 ဖန်တီးနေပါသည်..."
+            Thread {
+                try {
+                    CloudAiClient.synthesizeCommercialMyanmarVoice(
+                        this, latestRecap, commercialVoiceId, audioFile
+                    ) { message -> runOnUiThread { status.text = message } }
+                    runOnUiThread { exportNarratedMp4(destination, audioFile) }
+                } catch (error: Exception) {
+                    audioFile.delete()
+                    runOnUiThread {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        status.text = "Commercial Neural Voice မအောင်မြင်ပါ: ${error.localizedMessage ?: "TTS error"}"
+                    }
+                }
+            }.start()
+            return
+        }
         val engine = tts ?: run { status.text = "TTS Engine မရရှိပါ။"; return }
         if (availableVoices.isEmpty() || engine.voice?.locale?.language != "my") {
             status.text = "မြန်မာဘာသာ TTS Voice မရွေးထားပါ။ အခြားဘာသာအသံဖြင့် မြန်မာစာ မဖတ်စေပါ။"

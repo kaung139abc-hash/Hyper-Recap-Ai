@@ -35,6 +35,79 @@ object CloudAiClient {
         return level.joinToString("\n\n")
     }
 
+    data class MyanmarVoice(val id: String, val name: String, val gender: String)
+
+    /** Fetch only voices explicitly marked as supporting Burmese by the commercial TTS provider. */
+    fun fetchCommercialMyanmarVoices(context: Context): List<MyanmarVoice> {
+        val license = LicenseManager.savedKey(context)
+        if (license.isBlank()) throw IllegalStateException("License Key ကို အရင် Activate လုပ်ပါ။")
+        val payload = JSONObject().put("licenseKey", license)
+            .put("deviceId", LicenseManager.deviceId(context)).toString()
+        val response = postJson("/v1/ai/voices", payload)
+        val array = response.optJSONArray("voices") ?: return emptyList()
+        return (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isBlank()) null else MyanmarVoice(id, item.optString("name", "Myanmar Voice"), item.optString("gender", "Unknown"))
+        }
+    }
+
+    /** Download licensed commercial Burmese neural narration as an MP3 audio track. */
+    fun synthesizeCommercialMyanmarVoice(
+        context: Context,
+        text: String,
+        voiceId: String,
+        output: java.io.File,
+        progress: (String) -> Unit = {}
+    ) {
+        require(text.trim().length >= 5 && text.length <= 4500) { "Neural Voice စာသားသည် ၅ မှ ၄၅၀၀ လုံးအတွင်း ဖြစ်ရမည်။" }
+        require(voiceId.matches(Regex("[A-Za-z0-9_-]{5,100}"))) { "Voice ID မမှန်ပါ။" }
+        val license = LicenseManager.savedKey(context)
+        if (license.isBlank()) throw IllegalStateException("License Key ကို အရင် Activate လုပ်ပါ။")
+        val payload = JSONObject().put("licenseKey", license)
+            .put("deviceId", LicenseManager.deviceId(context))
+            .put("text", text).put("voiceId", voiceId).toString()
+        var connection: HttpURLConnection? = null
+        try {
+            progress("Commercial မြန်မာ Neural Voice ဖြင့် အသံဖန်တီးနေပါသည်...")
+            connection = (URL(LicenseManager.SERVER_URL.trimEnd('/') + "/v1/ai/tts").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 30_000
+                readTimeout = 180_000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            }
+            connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val stream = connection.errorStream
+                val detail = stream?.bufferedReader()?.use { it.readText() } ?: "HTTP $code"
+                throw IllegalStateException(detail.take(350))
+            }
+            output.parentFile?.mkdirs()
+            connection.inputStream.use { input ->
+                output.outputStream().use { target ->
+                    val buffer = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        target.write(buffer, 0, count)
+                        total += count
+                    }
+                    target.flush()
+                    if (total < 1024L) throw IllegalStateException("Neural Voice MP3 ဖိုင် မပြည့်စုံပါ။")
+                }
+            }
+            progress("Commercial မြန်မာ Neural Voice အသင့်ဖြစ်ပါပြီ။")
+        } catch (error: Exception) {
+            output.delete()
+            throw error
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
     fun analyzeVideoFrames(context: Context, frames: List<String>, frameTimesMs: List<Long> = emptyList()): String {
         if (frames.isEmpty() || frames.size > 2) throw IllegalArgumentException("Frame ၁ မှ ၂ ပုံအထိသာ ပို့နိုင်ပါသည်။")
         if (frameTimesMs.isNotEmpty() && frameTimesMs.size != frames.size) throw IllegalArgumentException("Frame အချိန်နှင့် ပုံအရေအတွက် မကိုက်ညီပါ။")
