@@ -14,7 +14,9 @@ import kotlin.math.sqrt
 object OfflineRecap {
     private const val WINDOW_CHARS = 7_000
     private const val MIN_SENTENCE_CHARS = 12
-    private val sentenceBoundary = Regex("(?<=[။.!?])\\s+|\\n+")
+    // Burmese full stops are often written without a following space.
+    // Split after punctuation whether or not whitespace follows it.
+    private val sentenceBoundary = Regex("(?<=[။.!?])\\s*|\\n+")
     private val tokenizer = Regex("[\\p{L}\\p{N}]{2,}")
 
     private val stopWords = setOf(
