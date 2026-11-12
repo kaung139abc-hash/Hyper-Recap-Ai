@@ -364,8 +364,14 @@ object WhisperTranscriber {
                 input.seek(chunkStart + size + (size and 1L))
                 if (dataOffset >= 0 && sampleRate > 0 && channels > 0) break
             }
-            if (encoding != 1 || bits != 16 || sampleRate <= 0 || channels !in 1..8 || dataOffset < 0) {
-                throw IllegalArgumentException("Whisper အတွက် PCM 16-bit WAV (mono/multichannel) လိုအပ်ပါသည်။")
+            if (encoding != 1 || bits != 16 || sampleRate !in 8_000..192_000 ||
+                channels !in 1..8 || dataOffset < 0) {
+                throw IllegalArgumentException("Whisper အတွက် မှန်ကန်သော PCM 16-bit WAV (8–192 kHz, 1–8 channels) လိုအပ်ပါသည်။")
+            }
+            val bytesPerFrame = channels.toLong() * 2L
+            if (dataBytes <= 0L || dataBytes % bytesPerFrame != 0L ||
+                dataOffset > input.length() || dataBytes > input.length() - dataOffset) {
+                throw IllegalArgumentException("WAV အသံဒေတာ အရွယ်အစား/အဆုံးသတ် မမှန်ကန်ပါ။")
             }
             return WavInfo(sampleRate, channels, dataOffset, dataBytes)
         }
