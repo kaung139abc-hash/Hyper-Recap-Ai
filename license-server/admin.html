@@ -6,7 +6,7 @@ body{font:15px system-ui;max-width:1000px;margin:32px auto;padding:0 16px;backgr
 </style>
 <h1>Hyper Recap AI — License Admin</h1>
 <section><h3>Connection</h3><input id="url" placeholder="https://your-worker.workers.dev" size="42"><input id="secret" type="password" placeholder="ADMIN_SECRET"><button onclick="load()">Connect / Refresh</button><p><small>Admin secret is held only in this browser tab. Do not use on a shared device.</small></p></section>
-<section><h3>Create license</h3><select id="plan"><option value="trial">Free Trial (3 days)</option><option value="monthly">Monthly (30 days)</option><option value="lifetime">Lifetime</option></select><input id="devices" type="number" min="1" max="5" value="1" placeholder="Device limit"><input id="note" placeholder="Customer / payment note"><button onclick="create()">Generate license</button><div id="out"></div></section>
+<section><h3>Create license</h3><select id="plan"><option value="trial">Free Trial (24 hours)</option><option value="monthly">Monthly (30 days)</option><option value="lifetime">Lifetime</option></select><input id="devices" type="number" min="1" max="5" value="1" placeholder="Device limit"><input id="note" placeholder="Customer / payment note"><button onclick="create()">Generate license</button><div id="out"></div></section>
 <section><h3>Customers / Licenses</h3><div id="stats"></div><div style="overflow:auto"><table><thead><tr><th>ID</th><th>Plan</th><th>Status</th><th>Expires</th><th>Devices</th><th>Note</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table></div></section>
 <script>
 const $=id=>document.getElementById(id), base=()=> $('url').value.trim().replace(/\/$/,'');
