@@ -903,7 +903,15 @@ class MainActivity : Activity() {
                     recapVisualContext = visualNotes
                     try {
                         runOnUiThread { status.text = "Generative AI က ဇာတ်လမ်းအစမှ အဆုံးအထိ မြန်မာ Recap ရေးသားနေပါသည်..." }
-                        finalRecap = CloudAiClient.generateBurmeseRecap(this, source, visualNotes) { message ->
+                        // Preserve original Whisper/SRT timestamps for the generative model.
+                        // This helps it reconstruct the movie timeline and avoids treating
+                        // dialogue from separate scenes as one continuous event.
+                        val aiTranscript = if (sourceCues.isNotEmpty()) {
+                            sourceCues.sortedBy { it.startMs }.joinToString("\n") {
+                                "[${formatDuration(it.startMs)}] ${it.text}"
+                            }
+                        } else source
+                        finalRecap = CloudAiClient.generateBurmeseRecap(this, aiTranscript, visualNotes) { message ->
                             runOnUiThread { status.text = message }
                         }
                         if (finalRecap.isNotBlank()) {
