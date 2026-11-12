@@ -519,7 +519,7 @@ class MainActivity : Activity() {
                     val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
                     voice.locale.language == "my" && excluded.none { identity.contains(it) }
                 }.sortedWith(compareBy<Voice>(
-                    { if (it.isNetworkConnectionRequired) 0 else 1 },
+                    { if (it.isNetworkConnectionRequired) 1 else 0 },
                     { -it.quality }, { it.locale.displayName }, { it.name }
                 ))
                 val labels = availableVoices.map { voice ->
@@ -627,7 +627,7 @@ class MainActivity : Activity() {
                         val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
                         voice.locale.language == "my" && excluded.none { identity.contains(it) }
                     }
-                    .sortedWith(compareBy<Voice>({ if (it.isNetworkConnectionRequired) 0 else 1 }, { -it.quality }, { it.name }))
+                    .sortedWith(compareBy<Voice>({ if (it.isNetworkConnectionRequired) 1 else 0 }, { -it.quality }, { it.name }))
                 val labels = availableVoices.map { voice ->
                     val mode = if (voice.isNetworkConnectionRequired) "Online" else "Offline"
                     "${voice.locale.displayName} — ${voice.name} — $mode — Quality ${voice.quality}"
