@@ -128,6 +128,12 @@ object CloudAiClient {
             if (part.isNotBlank()) chunks += part
             start = end.coerceAtLeast(start + 1)
         }
+        // The license server rejects recap/translation inputs shorter than 30
+        // characters. Avoid leaving a tiny trailing fragment as a separate request.
+        if (chunks.size > 1 && chunks.last().length < 30) {
+            val tail = chunks.removeAt(chunks.lastIndex)
+            chunks[chunks.lastIndex] = chunks.last() + "\\n" + tail
+        }
         return chunks
     }
 }
