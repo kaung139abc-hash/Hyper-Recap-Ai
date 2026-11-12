@@ -142,17 +142,13 @@ object OfflineStoryAi {
                 onProgress("Offline English → Myanmar Translation — ${index + 1}/${chunks.size}")
                 val prompt = chatPrompt(
                     system = "You are a professional English-to-Burmese translator. Translate faithfully into natural, fluent Myanmar Burmese. Preserve every fact, name, number, dialogue meaning and paragraph order. Do not summarize, explain, omit, or add content. Output only the Burmese translation. /no_think",
-                    user = "Translate the following text into Myanmar Burmese. Keep the original meaning and all details:
-
-$chunk"
+                    user = "Translate the following text into Myanmar Burmese. Keep the original meaning and all details:\n\n$chunk"
                 )
                 val result = LlamaBridge.generate(prompt).trim()
                 if (result.isBlank()) throw IllegalStateException("ဘာသာပြန်အပိုင်း ${index + 1} မှ အဖြေမရပါ။")
                 translated += result
             }
-            return translated.joinToString("
-
-")
+            return translated.joinToString("\n\n")
         } finally {
             synchronized(modelLock) {
                 if (modelReady) {
