@@ -217,37 +217,48 @@ object AudioDecoder {
     }
 
     private fun convertToPcm16(bytes: ByteArray, encoding: Int): ByteArray {
-        if (encoding == 2) {
-            if (bytes.size % 2 != 0) throw IllegalStateException("PCM16 decoder buffer အရွယ်အစား မမှန်ပါ။")
-            return bytes // ENCODING_PCM_16BIT
-        }
-        val input = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val output = when (encoding) {
-            3 -> ByteBuffer.allocate((bytes.size / 1) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_8BIT
-            4 -> ByteBuffer.allocate((bytes.size / 4) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_FLOAT
-            21 -> ByteBuffer.allocate((bytes.size / 3) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_24BIT_PACKED
-            22 -> ByteBuffer.allocate((bytes.size / 4) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_32BIT
+        // MediaCodec output buffers must contain complete samples. Never silently
+        // truncate a partial sample: doing so can shift every following channel.
+        val bytesPerSample = when (encoding) {
+            2 -> 2  // ENCODING_PCM_16BIT
+            3 -> 1  // ENCODING_PCM_8BIT
+            4, 22 -> 4 // ENCODING_PCM_FLOAT / ENCODING_PCM_32BIT
+            21 -> 3 // ENCODING_PCM_24BIT_PACKED
             else -> throw IllegalStateException("မပံ့ပိုးသော PCM encoding: $encoding")
         }
-        when (encoding) {
-            3 -> while (input.remaining() >= 1) {
-                val unsigned = input.get().toInt() and 0xff
-                output.putShort(((unsigned - 128) shl 8).toShort())
+        if (bytes.size % bytesPerSample != 0) {
+            throw IllegalStateException("Decoder PCM buffer သည် Sample အပြည့်မဟုတ်ပါ။")
+        }
+        if (encoding == 2) return bytes
+
+        val sampleCount = bytes.size / bytesPerSample
+        if (sampleCount > Int.MAX_VALUE / 2) {
+            throw IllegalStateException("Decoder PCM buffer အလွန်ကြီးနေပါသည်။")
+        }
+        val input = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val output = ByteBuffer.allocate(sampleCount * 2).order(ByteOrder.LITTLE_ENDIAN)
+        repeat(sampleCount) {
+            val sample = when (encoding) {
+                3 -> {
+                    val unsigned = input.get().toInt() and 0xff
+                    ((unsigned - 128) shl 8).toShort()
+                }
+                4 -> {
+                    val value = input.getFloat()
+                    val finite = if (value.isFinite()) value.coerceIn(-1f, 1f) else 0f
+                    (finite * 32767f).toInt().toShort()
+                }
+                21 -> {
+                    var value = (input.get().toInt() and 0xff) or
+                        ((input.get().toInt() and 0xff) shl 8) or
+                        (input.get().toInt() shl 16)
+                    if ((value and 0x800000) != 0) value = value or -0x1000000
+                    (value shr 8).toShort()
+                }
+                22 -> (input.int shr 16).toShort()
+                else -> throw IllegalStateException("မပံ့ပိုးသော PCM encoding: $encoding")
             }
-            4 -> while (input.remaining() >= 4) {
-                val value = input.getFloat().coerceIn(-1f, 1f)
-                output.putShort((value * 32767f).toInt().toShort())
-            }
-            21 -> while (input.remaining() >= 3) {
-                var value = (input.get().toInt() and 0xff) or
-                    ((input.get().toInt() and 0xff) shl 8) or
-                    (input.get().toInt() shl 16)
-                if ((value and 0x800000) != 0) value = value or -0x1000000
-                output.putShort((value shr 8).toShort())
-            }
-            22 -> while (input.remaining() >= 4) {
-                output.putShort((input.int shr 16).toShort())
-            }
+            output.putShort(sample)
         }
         return output.array()
     }
