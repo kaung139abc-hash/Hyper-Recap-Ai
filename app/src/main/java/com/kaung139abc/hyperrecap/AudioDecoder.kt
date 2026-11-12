@@ -62,8 +62,10 @@ object AudioDecoder {
             // Reserve enough cache space before starting a multi-hour decode.
             val sourceDurationUs = inputFormat.getLongOrDefault(MediaFormat.KEY_DURATION, 0L)
             if (sourceDurationUs > 0L) {
+                // The Whisper pipeline needs mono audio. Downmix while decoding so a
+                // two-hour 48 kHz stereo source uses roughly half the temporary storage.
                 val estimatedWavBytes = (sourceDurationUs.toDouble() / 1_000_000.0 *
-                    sampleRate.toDouble() * channels.toDouble() * 2.0 + 44.0).toLong()
+                    sampleRate.toDouble() * 2.0 + 44.0).toLong()
                 val availableBytes = output.parentFile?.usableSpace ?: context.cacheDir.usableSpace
                 val safetyMargin = 256L * 1024L * 1024L
                 if (estimatedWavBytes > availableBytes - safetyMargin) {
@@ -116,7 +118,8 @@ object AudioDecoder {
                             buffer.get(chunk)
                             // WAV header below is always 16-bit PCM. Normalize decoder output
                             // rather than writing 8/24/32-bit samples under a false 16-bit header.
-                            val pcm = convertToPcm16(chunk, pcmEncoding)
+                            val decodedPcm = convertToPcm16(chunk, pcmEncoding)
+                            val pcm = downmixToMonoPcm16(decodedPcm, channels)
                             if (pcm.size.toLong() > 0xFFFFFFFFL - 36L - dataBytes) {
                                 throw IllegalStateException("WAV 4 GB ကန့်သတ်ချက် ကျော်နေပါသည်။ Audio ကို အပိုင်းခွဲ၍ ပြောင်းရန်လိုအပ်ပါသည်။")
                             }
@@ -142,8 +145,8 @@ object AudioDecoder {
                 throw IllegalStateException("Decoder မှ Audio format မမှန်ကန်ပါ: ${sampleRate}Hz / ${channels}ch")
             }
             if (dataBytes == 0L) throw IllegalStateException("PCM အသံဒေတာ မရရှိပါ။")
-            if (dataBytes % (channels * 2L) != 0L) {
-                throw IllegalStateException("PCM အသံဒေတာသည် Sample Frame အပြည့်မဟုတ်ပါ။")
+            if (dataBytes % 2L != 0L) {
+                throw IllegalStateException("Mono PCM အသံဒေတာသည် Sample Frame အပြည့်မဟုတ်ပါ။")
             }
             if (dataBytes > 0xFFFFFFFFL - 36L) throw IllegalStateException("WAV ဖိုင်အရွယ်အစား ကန့်သတ်ချက် ကျော်နေပါသည်။")
             out.seek(0)
@@ -153,10 +156,11 @@ object AudioDecoder {
             out.writeBytes("fmt ")
             out.writeIntLE(16)
             out.writeShortLE(1)
-            out.writeShortLE(channels)
+            // Store a mono WAV; Whisper resamples this to 16 kHz in bounded windows.
+            out.writeShortLE(1)
             out.writeIntLE(sampleRate)
-            out.writeIntLE(sampleRate * channels * 2)
-            out.writeShortLE(channels * 2)
+            out.writeIntLE(sampleRate * 2)
+            out.writeShortLE(2)
             out.writeShortLE(16)
             out.writeBytes("data")
             out.writeIntLE(dataBytes.toInt())
@@ -171,6 +175,36 @@ object AudioDecoder {
             try { sourceDescriptor?.close() } catch (_: Exception) {}
             try { wav?.close() } catch (_: Exception) {}
         }
+    }
+
+    /**
+     * Downmix interleaved PCM16 to mono as the bytes are streamed from MediaCodec.
+     * This avoids retaining stereo WAVs for long movies; peak memory stays bounded
+     * to one decoder output buffer plus one mono output buffer.
+     */
+    private fun downmixToMonoPcm16(interleaved: ByteArray, channels: Int): ByteArray {
+        if (channels !in 1..8) throw IllegalStateException("Audio channel အရေအတွက် မမှန်ပါ။")
+        val frameBytes = channels * 2
+        if (interleaved.size % frameBytes != 0) {
+            throw IllegalStateException("Decoder PCM buffer သည် audio frame အပြည့်မဟုတ်ပါ။")
+        }
+        if (channels == 1) return interleaved
+        val frames = interleaved.size / frameBytes
+        val mono = ByteArray(frames * 2)
+        var source = 0
+        var target = 0
+        repeat(frames) {
+            var sum = 0
+            repeat(channels) {
+                val low = interleaved[source++].toInt() and 0xff
+                val high = interleaved[source++].toInt()
+                sum += (high shl 8) or low
+            }
+            val sample = (sum / channels).coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            mono[target++] = (sample and 0xff).toByte()
+            mono[target++] = ((sample ushr 8) and 0xff).toByte()
+        }
+        return mono
     }
 
     private fun convertToPcm16(bytes: ByteArray, encoding: Int): ByteArray {
