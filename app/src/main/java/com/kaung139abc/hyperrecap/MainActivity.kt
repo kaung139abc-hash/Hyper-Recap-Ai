@@ -937,6 +937,10 @@ class MainActivity : Activity() {
             status.text = "Recap သို့မဟုတ် Video မရှိပါ။"
             return
         }
+        if (latestRecap.length > TextToSpeech.getMaxSpeechInputLength()) {
+            status.text = "Recap စာသားသည် ဖုန်း TTS Engine ၏ စာသားကန့်သတ်ချက်ထက် ရှည်နေပါသည်။"
+            return
+        }
         val wav = File(cacheDir, "hyper_auto_voice_${System.currentTimeMillis()}.wav")
         pendingNarratedMp4Destination = destination
         pendingNarrationWav = wav
@@ -954,7 +958,7 @@ class MainActivity : Activity() {
             wav.delete()
             pendingNarrationWav = null
             pendingNarratedMp4Destination = null
-            status.text = "အသံဖန်တီးမရပါ: ${e.localizedMessage ?: "TTS error"}"
+            status.text = "အသံဖန်တီးမရပါ: " + (e.localizedMessage ?: "TTS error")
         }
     }
 
