@@ -319,7 +319,7 @@ class MainActivity : Activity() {
                     status.text = "TTS Voice Data ထည့်သွင်းရန် Settings ကို ဖွင့်ထားပါသည်။ Burmese / မြန်မာ အသံ Data ရှိမရှိ စစ်ဆေးပါ။"
                 } catch (_: Exception) {
                     status.text = "ဖုန်း Settings > Additional settings > Languages & input > Text-to-speech output ထဲဝင်ပြီး Burmese / မြန်မာ Voice Data ရှိမရှိ စစ်ဆေးပါ။"
-                    android.widget.Toast.makeText(this, status.text.toString(), android.widget.Toast.LENGTH_LONG).show()
+                    android.widget.Toast.makeText(this@MainActivity, status.text.toString(), android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }, matchWidth())
