@@ -51,6 +51,7 @@ object AudioDecoder {
             decoder.configure(inputFormat, null, null, 0)
             decoder.start()
 
+            output.parentFile?.mkdirs()
             val out = RandomAccessFile(output, "rw")
             wav = out
             out.setLength(0)
@@ -120,8 +121,16 @@ object AudioDecoder {
                             // rather than writing 8/24/32-bit samples under a false 16-bit header.
                             val decodedPcm = convertToPcm16(chunk, pcmEncoding)
                             val pcm = downmixToMonoPcm16(decodedPcm, channels)
+                            if (pcm.isEmpty()) {
+                                decoder.releaseOutputBuffer(outputIndex, false)
+                                continue
+                            }
                             if (pcm.size.toLong() > 0xFFFFFFFFL - 36L - dataBytes) {
                                 throw IllegalStateException("WAV 4 GB ကန့်သတ်ချက် ကျော်နေပါသည်။ Audio ကို အပိုင်းခွဲ၍ ပြောင်းရန်လိုအပ်ပါသည်။")
+                            }
+                            val availableNow = output.parentFile?.usableSpace ?: context.cacheDir.usableSpace
+                            if (pcm.size.toLong() > availableNow - 32L * 1024L * 1024L) {
+                                throw IllegalStateException("ဖုန်း Storage နေရာ မလုံလောက်တော့ပါ။ ယာယီ WAV ဖိုင်ကို ဖျက်ပြီး လုပ်ဆောင်မှု ရပ်လိုက်ပါသည်။")
                             }
                             out.seek(44L + dataBytes)
                             out.write(pcm)
@@ -208,7 +217,10 @@ object AudioDecoder {
     }
 
     private fun convertToPcm16(bytes: ByteArray, encoding: Int): ByteArray {
-        if (encoding == 2) return bytes // ENCODING_PCM_16BIT
+        if (encoding == 2) {
+            if (bytes.size % 2 != 0) throw IllegalStateException("PCM16 decoder buffer အရွယ်အစား မမှန်ပါ။")
+            return bytes // ENCODING_PCM_16BIT
+        }
         val input = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         val output = when (encoding) {
             3 -> ByteBuffer.allocate((bytes.size / 1) * 2).order(ByteOrder.LITTLE_ENDIAN) // PCM_8BIT
