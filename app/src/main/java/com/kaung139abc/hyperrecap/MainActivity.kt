@@ -232,18 +232,17 @@ class MainActivity : Activity() {
         root.addView(sectionTitle("03  •  AUTOMATIC RECAP"), matchWidth())
         val choose = Button(this).apply {
             text = "ဖုန်းထဲက Video ရွေးရန်"
-            setOnClickListener { requireLicense { chooseVideo() } }
+            setOnClickListener { chooseVideo() }
         }
         root.addView(choose, matchWidth())
         root.addView(Button(this).apply {
             text = "✨ AUTO RECAP — Video မှ ဇာတ်လမ်းအကျဉ်း အလိုအလျောက်ထုတ်ရန်"
             setOnClickListener {
-                requireLicense {
-                    if (selectedVideoUri == null) {
-                        status.text = "အရင်ဆုံး ဖုန်းထဲက Video ရွေးပါ။"
-                    } else {
-                        transcribeSelectedVideo()
-                    }
+                if (selectedVideoUri == null) {
+                    status.text = "အရင်ဆုံး ဖုန်းထဲက Video ရွေးပါ။"
+                    android.widget.Toast.makeText(this@MainActivity, status.text, android.widget.Toast.LENGTH_LONG).show()
+                } else {
+                    transcribeSelectedVideo()
                 }
             }
         }, matchWidth())
