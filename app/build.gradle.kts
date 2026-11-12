@@ -55,4 +55,6 @@ dependencies {
     implementation("androidx.media3:media3-transformer:1.8.0")
     // MIT-licensed on-device llama.cpp inference runtime for downloadable GGUF models.
     implementation("com.llamatik:library:1.10.1")
+    // Bundled on-device image labeling model; frame analysis works offline without API keys.
+    implementation("com.google.mlkit:image-labeling:17.0.9")
 }
