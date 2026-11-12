@@ -231,65 +231,69 @@ object OfflineStoryAi {
         val directory = File(context.filesDir, "ai-models/qwen3-0.6b").apply { mkdirs() }
         val model = File(directory, MODEL_FILE)
         if (isValidModelFile(model)) return model
-        if (model.exists() && !model.delete()) {
-            throw IllegalStateException("ပျက်စီးနေသော Offline AI Model ဖိုင်ကို ဖယ်ရှားမရပါ။")
-        }
-        if (directory.usableSpace < MIN_FREE_BYTES) {
-            throw IllegalStateException("Offline Story AI အတွက် အနည်းဆုံး 900 MB နေရာလွတ် လိုအပ်ပါသည်။")
-        }
+        if (model.exists() && !model.delete()) throw IllegalStateException("ပျက်စီးနေသော Offline AI Model ဖိုင်ကို ဖယ်ရှားမရပါ။")
+        if (directory.usableSpace < MIN_FREE_BYTES) throw IllegalStateException("Offline Story AI အတွက် အနည်းဆုံး 900 MB နေရာလွတ် လိုအပ်ပါသည်။")
+
+        // Preserve interrupted downloads and resume them with HTTP Range.
         val partial = File(directory, "$MODEL_FILE.part")
-        partial.delete()
+        if (partial.length() > MAX_MODEL_BYTES) partial.delete()
+        val existingBytes = partial.length().coerceAtMost(MAX_MODEL_BYTES)
         val connection = (URL(MODEL_URL).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000
             readTimeout = 120_000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "Hyper-Recap-AI-Android")
+            if (existingBytes > 0L) setRequestProperty("Range", "bytes=$existingBytes-")
         }
         try {
             connection.connect()
-            if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("Offline AI Model Download မအောင်မြင်ပါ (HTTP ${connection.responseCode})")
+            val response = connection.responseCode
+            if (response == HttpURLConnection.HTTP_REQUESTED_RANGE_NOT_SATISFIABLE) {
+                if (isValidModelFile(partial)) {
+                    if (!partial.renameTo(model)) throw IllegalStateException("Offline AI Model ကို သိမ်းမရပါ။")
+                    return model
+                }
+                partial.delete()
+                throw IllegalStateException("Offline AI Model Download အပိုင်းအစ မမှန်ကန်ပါ။ ပြန်လည်ဒေါင်းလုဒ်လုပ်ပါ။")
             }
-            val total = connection.contentLengthLong
+            if (response !in 200..299) throw IllegalStateException("Offline AI Model Download မအောင်မြင်ပါ (HTTP $response)")
+            val append = response == HttpURLConnection.HTTP_PARTIAL && existingBytes > 0L
+            if (response == HttpURLConnection.HTTP_PARTIAL && !append) throw IllegalStateException("Offline AI Model Server မှ မမှန်ကန်သော Partial Response ရရှိသည်။")
+            val rangeTotal = connection.getHeaderField("Content-Range")?.substringAfterLast("/")?.toLongOrNull() ?: -1L
+            val responseLength = connection.contentLengthLong
+            val expectedTotal = if (rangeTotal > 0L) rangeTotal else if (append && responseLength > 0L) existingBytes + responseLength else responseLength
+            if (expectedTotal > MAX_MODEL_BYTES) throw IllegalStateException("Offline AI Model ဖိုင်သည် 800 MB ကန့်သတ်ချက်ထက် ကြီးနေပါသည်။")
+
             connection.inputStream.use { input ->
-                FileOutputStream(partial).use { output ->
+                FileOutputStream(partial, append).use { output ->
                     val buffer = ByteArray(256 * 1024)
-                    var received = 0L
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
-                        received += count
-                        if (received > MAX_MODEL_BYTES || (total > 0L && total > MAX_MODEL_BYTES)) {
-                            throw IllegalStateException("Offline AI Model ဖိုင်သည် 800 MB ကန့်သတ်ချက်ထက် ကြီးနေပါသည်။")
-                        }
                         output.write(buffer, 0, count)
-                        if (total > 0L) {
-                            onProgress("Offline AI Model Download — ${(received * 100 / total).coerceIn(0, 100)}%")
-                        } else {
-                            onProgress("Offline AI Model Download — ${received / (1024 * 1024)} MB")
-                        }
+                        val received = partial.length()
+                        if (received > MAX_MODEL_BYTES) throw IllegalStateException("Offline AI Model ဖိုင်သည် 800 MB ကန့်သတ်ချက်ထက် ကြီးနေပါသည်။")
+                        if (expectedTotal > 0L) onProgress("Offline AI Model Download — ${(received * 100 / expectedTotal).coerceIn(0, 100)}%")
+                        else onProgress("Offline AI Model Download — ${received / (1024 * 1024)} MB")
                     }
                     output.fd.sync()
                 }
             }
-            if (partial.length() < MIN_MODEL_BYTES || partial.length() > MAX_MODEL_BYTES ||
-                (total > 0L && partial.length() != total)) {
-                throw IllegalStateException("Offline AI Model Download မပြည့်စုံပါ သို့မဟုတ် အရွယ်အစားမမှန်ပါ။")
+            if (partial.length() < MIN_MODEL_BYTES || partial.length() > MAX_MODEL_BYTES || (expectedTotal > 0L && partial.length() != expectedTotal)) {
+                throw IllegalStateException("Offline AI Model Download မပြည့်စုံပါ။ အင်တာနက်ပြတ်ခဲ့လျှင် ပြန်စမ်းပါ၊ ကျန်နေသော Download မှ ဆက်လုပ်ပါမည်။")
             }
             if (!isValidModelFile(partial)) {
+                partial.delete()
                 throw IllegalStateException("Download လုပ်ထားသော Model သည် မှန်ကန်သော GGUF ဖိုင်မဟုတ်ပါ။")
             }
             if (model.exists()) model.delete()
             if (!partial.renameTo(model)) throw IllegalStateException("Offline AI Model ကို သိမ်းမရပါ။")
             return model
-        } catch (error: Exception) {
-            partial.delete()
-            throw error
         } finally {
+            // Keep the partial file after network failures so the next attempt can resume.
             connection.disconnect()
         }
     }
-
     private fun isValidModelFile(file: File): Boolean {
         if (!file.isFile || file.length() !in MIN_MODEL_BYTES..MAX_MODEL_BYTES) return false
         return try {
