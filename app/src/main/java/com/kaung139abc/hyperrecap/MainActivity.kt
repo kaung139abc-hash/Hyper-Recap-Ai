@@ -1362,7 +1362,7 @@ class MainActivity : Activity() {
                 sampled++
                 if (batch.size == 2) {
                     onProgress("AI ရုပ်ပုံနားလည်မှု — ${analyzed + 1}/$sampleCount frame များကို စိစစ်နေသည်...")
-                    val description = CloudAiClient.analyzeVideoFrames(this, batch.map { it.second })
+                    val description = CloudAiClient.analyzeVideoFrames(this, batch.map { it.second }, batch.map { it.first })
                     batch.forEach { (at, _) -> notes.append("[${formatDuration(at)}] ") }
                     notes.append(description).append("\n")
                     analyzed += batch.size
