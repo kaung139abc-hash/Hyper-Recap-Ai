@@ -37,6 +37,7 @@ object OfflineStoryAi {
 
         val chunks = splitTranscript(clean)
         val evidenceSummaries = ArrayList<String>(chunks.size)
+        configureGeneration(180)
         chunks.forEachIndexed { index, chunk ->
             onProgress("Offline Story AI — ဇာတ်လမ်းအပိုင်း ${index + 1}/${chunks.size} ကို နားလည်နေသည်...")
             val prompt = chatPrompt(
@@ -48,14 +49,51 @@ object OfflineStoryAi {
         }
         if (evidenceSummaries.isEmpty()) throw IllegalStateException("Offline Story AI မှ အဖြေမရရှိပါ။")
 
+        // Hierarchical reduction keeps a 2+ hour transcript within the model's
+        // 4K-token context instead of concatenating every intermediate note.
+        var storyNotes = evidenceSummaries
+        var reductionRound = 1
+        while (storyNotes.sumOf { it.length } > 2_600 && reductionRound <= 4) {
+            val groups = groupNotes(storyNotes, 2_300)
+            val reduced = ArrayList<String>(groups.size)
+            groups.forEachIndexed { index, group ->
+                onProgress("Offline Story AI — ရှည်လျားသောဇာတ်လမ်းကို အဆင့်လိုက်ပေါင်းစပ်နေသည် ($reductionRound / $index)...")
+                val prompt = chatPrompt(
+                    system = "You are a precise Burmese story editor. Merge related events, preserve chronology, characters, motivations and cause-and-effect. Never invent details. /no_think",
+                    user = "Condense these chronological scene notes into 4 to 6 concise Burmese bullet points. Keep the major turning points and ending evidence.\n\nNOTES:\n$group"
+                )
+                val note = LlamaBridge.generate(prompt).trim()
+                if (note.isNotBlank()) reduced += note
+            }
+            if (reduced.isEmpty()) break
+            storyNotes = reduced
+            reductionRound++
+        }
+
         onProgress("Offline Story AI — ဇာတ်လမ်းအစ၊ အလယ်၊ အဆုံးကို ပေါင်းစပ်ရေးသားနေသည်...")
+        configureGeneration(520)
         val finalPrompt = chatPrompt(
             system = "You are a professional Burmese movie recap writer. Reconstruct one coherent story from chronological evidence. Explain the setup, key characters, motivations, major turning points, climax and ending. Keep cause-and-effect clear. Do not add unsupported details. Output fluent natural Burmese narration, not bullet points. /no_think",
             user = "Write a coherent Burmese movie recap using all the following ordered scene summaries. Include the ending and avoid repeating events.\n\nSCENE SUMMARIES:\n" +
-                evidenceSummaries.joinToString("\n\n")
+                storyNotes.joinToString("\n\n")
         )
         return LlamaBridge.generate(finalPrompt).trim().takeIf { it.length >= 80 }
             ?: throw IllegalStateException("Offline Story AI ၏ နောက်ဆုံး Recap မပြည့်စုံပါ။")
+    }
+
+    private fun groupNotes(notes: List<String>, maxChars: Int): List<String> {
+        val groups = ArrayList<String>()
+        val current = StringBuilder()
+        for (note in notes) {
+            if (current.isNotEmpty() && current.length + note.length + 2 > maxChars) {
+                groups += current.toString()
+                current.setLength(0)
+            }
+            if (current.isNotEmpty()) current.append("\n\n")
+            current.append(note)
+        }
+        if (current.isNotEmpty()) groups += current.toString()
+        return groups
     }
 
     private fun ensureRuntime(model: File, onProgress: (String) -> Unit) {
@@ -63,24 +101,28 @@ object OfflineStoryAi {
         synchronized(modelLock) {
             if (modelReady) return
             onProgress("Offline Story AI Model ကို RAM ထဲသို့ တင်နေသည်။ ပထမအကြိမ် အချိန်ယူနိုင်ပါသည်...")
-            LlamaBridge.updateGenerateParams(
-                temperature = 0.25f,
-                maxTokens = 420,
-                topP = 0.85f,
-                topK = 35,
-                repeatPenalty = 1.12f,
-                contextLength = 4096,
-                numThreads = 3,
-                useMmap = true,
-                flashAttention = false,
-                batchSize = 256,
-                gpuLayers = 0
-            )
+            configureGeneration(180)
             if (!LlamaBridge.initGenerateModel(model.absolutePath)) {
                 throw IllegalStateException("Offline Story AI Model ကို ဖွင့်မရပါ။ ဖုန်း RAM/Model ဖိုင်ကို စစ်ဆေးပါ။")
             }
             modelReady = true
         }
+    }
+
+    private fun configureGeneration(maxTokens: Int) {
+        LlamaBridge.updateGenerateParams(
+            temperature = 0.25f,
+            maxTokens = maxTokens,
+            topP = 0.85f,
+            topK = 35,
+            repeatPenalty = 1.12f,
+            contextLength = 4096,
+            numThreads = 3,
+            useMmap = true,
+            flashAttention = false,
+            batchSize = 256,
+            gpuLayers = 0
+        )
     }
 
     private fun ensureModel(context: Context, onProgress: (String) -> Unit): File {
@@ -122,7 +164,15 @@ object OfflineStoryAi {
                     output.fd.sync()
                 }
             }
-            if (partial.length() < MIN_MODEL_BYTES) throw IllegalStateException("Offline AI Model Download မပြည့်စုံပါ။")
+            if (partial.length() < MIN_MODEL_BYTES || (total > 0L && partial.length() != total)) {
+                throw IllegalStateException("Offline AI Model Download မပြည့်စုံပါ။")
+            }
+            val magic = ByteArray(4)
+            FileInputStream(partial).use { input ->
+                if (input.read(magic) != 4 || String(magic, Charsets.US_ASCII) != "GGUF") {
+                    throw IllegalStateException("Download လုပ်ထားသော Model သည် GGUF ဖိုင်မဟုတ်ပါ။")
+                }
+            }
             if (model.exists()) model.delete()
             if (!partial.renameTo(model)) throw IllegalStateException("Offline AI Model ကို သိမ်းမရပါ။")
             return model
