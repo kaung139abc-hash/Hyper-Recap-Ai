@@ -28,7 +28,7 @@ object WhisperTranscriber {
     private const val MODEL_DIR = "sherpa-onnx-whisper-base"
     private const val SAMPLE_RATE = 16_000
     private const val WINDOW_SECONDS = 28
-    private const val OVERLAP_SECONDS = 0
+    private const val OVERLAP_SECONDS = 1.5
 
     data class Segment(val startMs: Long, val endMs: Long, val text: String)
 
@@ -227,9 +227,13 @@ object WhisperTranscriber {
 
                         fun flushAlignedGroup() {
                             val value = groupText.toString().trim()
-                            if (value.isNotBlank() && groupEnd > groupStart) {
+                            // The overlap gives Whisper context across window boundaries.
+                            // Emit only the portion not already covered by the preceding window.
+                            val emitFrom = if (startMs == 0L) 0L else overlapMs
+                            val clippedStart = maxOf(groupStart, emitFrom)
+                            if (value.isNotBlank() && groupEnd > clippedStart) {
                                 aligned += Segment(
-                                    (startMs + groupStart).coerceAtLeast(startMs),
+                                    (startMs + clippedStart).coerceAtLeast(startMs),
                                     (startMs + groupEnd).coerceAtMost(endMs),
                                     value
                                 )
@@ -265,8 +269,9 @@ object WhisperTranscriber {
                         val pieces = splitSubtitleText(recognizedText, 88)
                         val weights = pieces.map { it.length.coerceAtLeast(1) }
                         val totalWeight = weights.sum().coerceAtLeast(1)
-                        val windowDuration = endMs - startMs
-                        var cueStart = startMs
+                        val emitFrom = if (startMs == 0L) 0L else overlapMs
+                        val windowDuration = (endMs - startMs - emitFrom).coerceAtLeast(1L)
+                        var cueStart = startMs + emitFrom
                         pieces.forEachIndexed { pieceIndex, piece ->
                             val cueEnd = if (pieceIndex == pieces.lastIndex) endMs else {
                                 (cueStart + (windowDuration * weights[pieceIndex] / totalWeight))
