@@ -1160,7 +1160,9 @@ class MainActivity : Activity() {
                 // Without a valid license or internet, the app safely falls back to the on-device draft.
                 var finalRecap = localDraft
                 var recapMode = "Local Offline Extractive Recap"
-                var recapVisualContext = ""
+                // Visual evidence was extracted locally from sampled frames in the
+                // video-to-recap workflow; pass it into the final story synthesis.
+                var recapVisualContext = latestVisualContext.trim().take(2_200)
 
                 // Try a genuinely generative on-device model first. Its GGUF weights
                 // are downloaded once; after that, this path runs without Internet.
@@ -1171,7 +1173,11 @@ class MainActivity : Activity() {
                             "[${formatDuration(it.startMs)}] ${it.text}"
                         }
                     } else source
-                    val onDeviceRecap = OfflineStoryAi.summarize(this, timestampedTranscript) { message ->
+                    val onDeviceRecap = OfflineStoryAi.summarize(
+                        this,
+                        timestampedTranscript,
+                        visualContext = recapVisualContext
+                    ) { message ->
                         runOnUiThread { status.text = message }
                     }
                     if (onDeviceRecap.isNotBlank()) {
@@ -1955,8 +1961,23 @@ class MainActivity : Activity() {
                 if (transcript.length < 80) {
                     throw IllegalStateException("အသံမှ စာသား ${transcript.length} လုံးသာ ရရှိသည်။ Recap အတွက် အနည်းဆုံး ၈၀ လုံးခန့် လိုအပ်သည်။")
                 }
+                // Analyze representative video frames locally before story synthesis.
+                // This adds visual evidence without uploading private movie frames.
+                val visualEvidence = try {
+                    LocalVideoVisualAnalyzer.analyze(this, sourceUri) { message ->
+                        runOnUiThread {
+                            status.text = message
+                            recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\\n\\n$message"
+                        }
+                    }
+                } catch (visualError: Exception) {
+                    runOnUiThread {
+                        status.text = "ရုပ်ပုံစိစစ်မှု မရနိုင်သေးပါ။ Transcript ကို ဆက်လက် Recap လုပ်နေပါသည်..."
+                    }
+                    ""
+                }
+                latestVisualContext = visualEvidence
                 handedOffToRecap = true
-                latestVisualContext = ""
                 runOnUiThread {
                     importedSrtCues = cues
                     importedSrtSource = transcript
