@@ -461,7 +461,7 @@ class MainActivity : Activity() {
                 }
                 is TextView -> {
                     val caption = view.text?.toString().orEmpty()
-                    if (caption.matches(Regex("0[1-6]\\\\s+•.*"))) {
+                    if ((caption.take(2).toIntOrNull() ?: 0) in 1..6 && caption.contains("•")) {
                         view.background = shape(0xFF17243A.toInt(), 0xFF344B70.toInt(), 13)
                         view.setTextColor(0xFF82E8D9.toInt())
                         view.textSize = 12.5f
