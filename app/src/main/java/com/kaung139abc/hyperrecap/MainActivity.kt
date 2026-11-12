@@ -1033,52 +1033,114 @@ class MainActivity : Activity() {
         }
     }
 
+    private data class NarrationWavPart(
+        val dataOffset: Long,
+        val dataSize: Long,
+        val format: ByteArray,
+        val channels: Int,
+        val sampleRate: Int,
+        val bitsPerSample: Int
+    )
+
+    private fun readNarrationWavPart(file: File): NarrationWavPart {
+        java.io.RandomAccessFile(file, "r").use { input ->
+            if (input.length() < 12L) throw IllegalStateException("အသံအပိုင်း WAV မပြည့်စုံပါ။")
+            val riff = ByteArray(4).also(input::readFully)
+            val riffSize = readWavUInt32(input)
+            val wave = ByteArray(4).also(input::readFully)
+            if (String(riff, Charsets.US_ASCII) != "RIFF" ||
+                String(wave, Charsets.US_ASCII) != "WAVE" ||
+                riffSize < 4L || riffSize > input.length() - 8L) {
+                throw IllegalStateException("TTS WAV ဖိုင်ပုံစံ မမှန်ပါ။")
+            }
+            var format: ByteArray? = null
+            var channels = 0
+            var sampleRate = 0
+            var bits = 0
+            var dataOffset = -1L
+            var dataSize = -1L
+            while (input.filePointer + 8L <= input.length()) {
+                val idBytes = ByteArray(4).also(input::readFully)
+                val id = String(idBytes, Charsets.US_ASCII)
+                val size = readWavUInt32(input)
+                val chunkStart = input.filePointer
+                val chunkEnd = chunkStart + size + (size and 1L)
+                if (chunkEnd < chunkStart || chunkEnd > input.length()) {
+                    throw IllegalStateException("WAV chunk အရွယ်အစား မမှန်ပါ။")
+                }
+                if (id == "fmt ") {
+                    if (size < 16L || size > 65_536L) throw IllegalStateException("WAV fmt chunk မမှန်ပါ။")
+                    val fmt = ByteArray(16)
+                    input.readFully(fmt)
+                    val buffer = ByteBuffer.wrap(fmt).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    val encoding = buffer.short.toInt() and 0xffff
+                    channels = buffer.short.toInt() and 0xffff
+                    sampleRate = buffer.int
+                    buffer.int // byte rate
+                    buffer.short // block align
+                    bits = buffer.short.toInt() and 0xffff
+                    if (encoding != 1) throw IllegalStateException("PCM WAV အသံသာ ပေါင်းစပ်နိုင်ပါသည်။")
+                    format = fmt
+                } else if (id == "data") {
+                    dataOffset = chunkStart
+                    dataSize = size
+                }
+                input.seek(chunkEnd)
+                if (format != null && dataOffset >= 0L) break
+            }
+            val fmt = format ?: throw IllegalStateException("WAV fmt chunk မတွေ့ပါ။")
+            if (dataOffset < 0L || dataSize <= 0L || dataSize > input.length() - dataOffset ||
+                channels !in 1..2 || sampleRate !in 8_000..192_000 || bits != 16) {
+                throw IllegalStateException("ပံ့ပိုးမထားသော သို့မဟုတ် မပြည့်စုံသော PCM WAV ဖြစ်ပါသည်။")
+            }
+            return NarrationWavPart(dataOffset, dataSize, fmt, channels, sampleRate, bits)
+        }
+    }
+
+    private fun readWavUInt32(input: java.io.RandomAccessFile): Long {
+        val b = ByteArray(4)
+        input.readFully(b)
+        return (b[0].toLong() and 0xffL) or
+            ((b[1].toLong() and 0xffL) shl 8) or
+            ((b[2].toLong() and 0xffL) shl 16) or
+            ((b[3].toLong() and 0xffL) shl 24)
+    }
+
     private fun mergeNarrationWavChunks(parts: List<File>, destination: File) {
         if (parts.isEmpty()) throw IllegalStateException("Narration အသံအပိုင်း မရှိပါ။")
-        var referenceFormat: ByteArray? = null
-        var outputHeader: ByteArray? = null
-        var totalData = 0L
-        val dataSizes = mutableListOf<Long>()
-        for (part in parts) {
-            if (!part.isFile || part.length() <= 44L) throw IllegalStateException("အသံအပိုင်း WAV မပြည့်စုံပါ။")
-            val header = ByteArray(44)
-            java.io.RandomAccessFile(part, "r").use { input ->
-                input.readFully(header)
-            }
-            if (String(header, 0, 4, Charsets.US_ASCII) != "RIFF" ||
-                String(header, 8, 4, Charsets.US_ASCII) != "WAVE" ||
-                String(header, 12, 4, Charsets.US_ASCII) != "fmt " ||
-                String(header, 36, 4, Charsets.US_ASCII) != "data") {
-                throw IllegalStateException("TTS WAV ဖိုင်ပုံစံကို မပံ့ပိုးပါ။")
-            }
-            val format = header.copyOfRange(12, 36)
-            if (referenceFormat == null) {
-                referenceFormat = format
-                outputHeader = header
-            } else if (!referenceFormat!!.contentEquals(format)) {
-                throw IllegalStateException("အသံအပိုင်းများ၏ WAV format မတူညီပါ။")
-            }
-            val dataSize = ByteBuffer.wrap(header, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int.toLong()
-            if (dataSize < 0L || dataSize > part.length() - 44L) throw IllegalStateException("WAV data size မမှန်ပါ။")
-            dataSizes += dataSize
-            totalData += dataSize
-            if (totalData > Int.MAX_VALUE - 44L) throw IllegalStateException("Narration WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
+        val parsed = parts.map { part ->
+            if (!part.isFile) throw IllegalStateException("အသံအပိုင်း WAV မတွေ့ပါ။")
+            readNarrationWavPart(part)
         }
-        val header = outputHeader!!.copyOf()
+        val reference = parsed.first()
+        if (parsed.any { !it.format.contentEquals(reference.format) }) {
+            throw IllegalStateException("အသံအပိုင်းများ၏ WAV format မတူညီပါ။")
+        }
+        val totalData = parsed.sumOf { it.dataSize }
+        if (totalData <= 0L || totalData > Int.MAX_VALUE - 44L) {
+            throw IllegalStateException("Narration WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
+        }
+        // Write a canonical 44-byte PCM header, regardless of optional RIFF chunks
+        // (LIST/JUNK/fact) present in individual Android TTS output files.
+        val header = ByteArray(44)
+        fun putAscii(offset: Int, value: String) {
+            value.toByteArray(Charsets.US_ASCII).copyInto(header, offset)
+        }
+        putAscii(0, "RIFF")
         ByteBuffer.wrap(header, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt((36L + totalData).toInt())
+        putAscii(8, "WAVE")
+        putAscii(12, "fmt ")
+        ByteBuffer.wrap(header, 16, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(16)
+        reference.format.copyInto(header, 20, 0, 16)
+        putAscii(36, "data")
         ByteBuffer.wrap(header, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(totalData.toInt())
         destination.outputStream().buffered().use { output ->
             output.write(header)
             val buffer = ByteArray(64 * 1024)
-            parts.forEachIndexed { index, part ->
-                java.io.FileInputStream(part).use { input ->
-                    var skipped = 0L
-                    while (skipped < 44L) {
-                        val count = input.skip(44L - skipped)
-                        if (count <= 0L) throw IllegalStateException("WAV header ကို ကျော်မရပါ။")
-                        skipped += count
-                    }
-                    var remaining = dataSizes[index]
+            parsed.forEachIndexed { index, partInfo ->
+                java.io.RandomAccessFile(parts[index], "r").use { input ->
+                    input.seek(partInfo.dataOffset)
+                    var remaining = partInfo.dataSize
                     while (remaining > 0L) {
                         val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
                         if (count <= 0) throw IllegalStateException("WAV audio data မပြည့်စုံပါ။")
