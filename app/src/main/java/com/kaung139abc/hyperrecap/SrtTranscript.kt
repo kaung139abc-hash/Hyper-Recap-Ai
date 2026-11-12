@@ -11,6 +11,7 @@ object SrtTranscript {
     private val timing = Regex(
         """(?m)^\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3}).*$"""
     )
+    private val tokenizer = Regex("[\\p{L}\\p{N}]{2,}")
     private val stop = setOf(
         "the", "and", "that", "this", "with", "from", "then", "when", "what",
         "where", "which", "there", "their", "have", "were", "been", "will",
@@ -55,7 +56,8 @@ object SrtTranscript {
         if (ordered.isEmpty()) return emptyList()
         val limit = maxCues.coerceIn(1, ordered.size)
         val tokenLists = ordered.map { cue ->
-            MyanmarTextTokenizer.tokens(cue.text).filter { it !in stop }
+            tokenizer.findAll(cue.text.lowercase(Locale.ROOT))
+                .map { it.value }.filter { it !in stop }.toList()
         }
         val docFreq = mutableMapOf<String, Int>()
         tokenLists.forEach { tokens -> tokens.toSet().forEach { term ->

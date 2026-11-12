@@ -59,6 +59,19 @@ object AudioDecoder {
             var channels = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var pcmEncoding = 2
             var dataBytes = 0L
+            // Reserve enough cache space before starting a multi-hour decode.
+            val sourceDurationUs = inputFormat.getLongOrDefault(MediaFormat.KEY_DURATION, 0L)
+            if (sourceDurationUs > 0L) {
+                val estimatedWavBytes = (sourceDurationUs.toDouble() / 1_000_000.0 *
+                    sampleRate.toDouble() * channels.toDouble() * 2.0 + 44.0).toLong()
+                val availableBytes = output.parentFile?.usableSpace ?: context.cacheDir.usableSpace
+                val safetyMargin = 256L * 1024L * 1024L
+                if (estimatedWavBytes > availableBytes - safetyMargin) {
+                    throw IllegalStateException(
+                        "၂ နာရီကျော် Video အသံ WAV အတွက် နေရာမလုံလောက်ပါ။ လိုအပ်မည့်နေရာ ${estimatedWavBytes / (1024 * 1024)} MB ခန့်၊ လွတ်နေသောနေရာ ${availableBytes / (1024 * 1024)} MB"
+                    )
+                }
+            }
             var inputDone = false
             var outputDone = false
             var lastProgress = -1L
@@ -104,6 +117,9 @@ object AudioDecoder {
                             // WAV header below is always 16-bit PCM. Normalize decoder output
                             // rather than writing 8/24/32-bit samples under a false 16-bit header.
                             val pcm = convertToPcm16(chunk, pcmEncoding)
+                            if (pcm.size.toLong() > 0xFFFFFFFFL - 36L - dataBytes) {
+                                throw IllegalStateException("WAV 4 GB ကန့်သတ်ချက် ကျော်နေပါသည်။ Audio ကို အပိုင်းခွဲ၍ ပြောင်းရန်လိုအပ်ပါသည်။")
+                            }
                             out.seek(44L + dataBytes)
                             out.write(pcm)
                             dataBytes += pcm.size

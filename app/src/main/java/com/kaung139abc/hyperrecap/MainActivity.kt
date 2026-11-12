@@ -1530,6 +1530,8 @@ class MainActivity : Activity() {
             return
         }
         transcriptionInProgress = true
+        // Keep Android from sleeping while a long movie is decoded and transcribed.
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         status.text = "Whisper အတွက် Video အသံကို PCM ပြောင်းနေပါသည်..."
         Thread {
             val wav = File(cacheDir, "hyper_whisper_${System.currentTimeMillis()}.wav")
@@ -1570,6 +1572,9 @@ class MainActivity : Activity() {
             } finally {
                 wav.delete()
                 transcriptionInProgress = false
+                runOnUiThread {
+                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
             }
         }.start()
     }
