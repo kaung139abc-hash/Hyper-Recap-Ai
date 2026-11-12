@@ -64,6 +64,8 @@ class MainActivity : Activity() {
     private lateinit var voiceInfo: TextView
     private var pendingAudioUri: Uri? = null
     private var pendingAudioFile: File? = null
+    @Volatile private var pendingSpeechChunks: List<String> = emptyList()
+    @Volatile private var pendingSpeechChunkIndex: Int = 0
     private var selectedVideoUri: Uri? = null
     private var pendingExtractedAudio: File? = null
     private var pendingDecodedWav: File? = null
@@ -336,6 +338,8 @@ class MainActivity : Activity() {
             text = "အသံရပ်ရန်"
             setOnClickListener {
                 tts?.stop()
+                pendingSpeechChunks = emptyList()
+                pendingSpeechChunkIndex = 0
                 status.text = "အသံဖတ်ခြင်း ရပ်လိုက်ပါပြီ။"
             }
         }, matchWidth())
@@ -692,6 +696,19 @@ class MainActivity : Activity() {
                     }
                 }
                 override fun onDone(utteranceId: String?) {
+                    if (utteranceId?.startsWith("hyper_unlimited_speech_chunk_") == true) {
+                        val completedIndex = utteranceId.substringAfterLast("_").toIntOrNull() ?: return
+                        if (completedIndex != pendingSpeechChunkIndex) return
+                        pendingSpeechChunkIndex++
+                        if (pendingSpeechChunkIndex < pendingSpeechChunks.size) {
+                            speakNextRecapChunk()
+                        } else {
+                            pendingSpeechChunks = emptyList()
+                            pendingSpeechChunkIndex = 0
+                            runOnUiThread { status.text = "Recap အသံဖတ်ပြီးပါပြီ။" }
+                        }
+                        return
+                    }
                     if (utteranceId?.startsWith("hyper_auto_narration_chunk_") == true) {
                         val completedIndex = utteranceId.substringAfterLast("_").toIntOrNull() ?: return
                         if (completedIndex != pendingNarrationChunkIndex) return
@@ -945,14 +962,35 @@ class MainActivity : Activity() {
             return
         }
         val engine = tts
-        if (engine == null || availableVoices.isEmpty()) {
-            status.text = "အသံ Engine သို့မဟုတ် Voice data မရရှိသေးပါ။"
+        if (engine == null || availableVoices.isEmpty() || engine.voice?.locale?.language != "my") {
+            status.text = "Offline မြန်မာ Voice data မရရှိသေးပါ။"
             return
         }
         engine.setSpeechRate(0.5f + speechRate.progress / 100f)
         engine.setPitch(0.5f + speechPitch.progress / 100f)
-        engine.speak(latestRecap, TextToSpeech.QUEUE_FLUSH, null, "hyper_recap_speech")
-        status.text = "ရွေးထားသောအသံဖြင့် Recap ဖတ်နေပါသည်။"
+        pendingSpeechChunks = splitNarrationIntoChunks(latestRecap, 2500)
+        pendingSpeechChunkIndex = 0
+        if (pendingSpeechChunks.isEmpty()) {
+            status.text = "ဖတ်ရန် Recap စာသား မရှိပါ။"
+            return
+        }
+        status.text = "အကန့်အသတ်မရှိ Local TTS — ${pendingSpeechChunks.size} အပိုင်းဖြင့် ဖတ်နေပါသည်..."
+        speakNextRecapChunk()
+    }
+
+    private fun speakNextRecapChunk() {
+        val engine = tts ?: throw IllegalStateException("TTS Engine မရရှိပါ။")
+        val index = pendingSpeechChunkIndex
+        if (index !in pendingSpeechChunks.indices) return
+        val result = engine.speak(
+            pendingSpeechChunks[index], TextToSpeech.QUEUE_FLUSH, Bundle(),
+            "hyper_unlimited_speech_chunk_" + index
+        )
+        if (result != TextToSpeech.SUCCESS) {
+            pendingSpeechChunks = emptyList()
+            pendingSpeechChunkIndex = 0
+            runOnUiThread { status.text = "အသံအပိုင်း ${index + 1} ကို ဖတ်မရပါ။ ဖုန်း TTS Engine ကို စစ်ဆေးပါ။" }
+        }
     }
 
     private fun previewVoice() {
