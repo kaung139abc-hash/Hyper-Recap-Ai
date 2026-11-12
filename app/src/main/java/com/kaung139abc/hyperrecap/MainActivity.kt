@@ -51,6 +51,7 @@ class MainActivity : Activity() {
     private lateinit var transcriptInput: EditText
     private lateinit var recapOutput: TextView
     private var latestRecap: String = ""
+    private var latestHighlightCues: List<SrtTranscript.Cue> = emptyList()
     @Volatile private var latestVisualContext: String = ""
     private var latestSrt: String = ""
     private var importedSrtCues: List<SrtTranscript.Cue> = emptyList()
@@ -839,13 +840,25 @@ class MainActivity : Activity() {
         recapOutput.text = "Local Recap ဖန်တီးနေပါသည်။ ခဏစောင့်ပါ..."
         Thread {
             try {
-                val generated = OfflineRecap.summarize(source, 24)
+                // Use source-timed transcript moments so the exported recap is a short highlight montage,
+                // not the entire original movie with narration laid over it.
+                val sourceCues = importedSrtCues
+                val highlights = if (sourceCues.isNotEmpty()) SrtTranscript.summarize(sourceCues, 12) else emptyList()
+                val generated = if (highlights.isNotEmpty()) {
+                    highlights.joinToString("\n\n") { it.text }
+                } else {
+                    OfflineRecap.summarize(source, 12)
+                }
                 if (generated.isBlank()) throw IllegalStateException("Local Recap အလွတ်ဖြစ်နေပါသည်။")
                 runOnUiThread {
                     latestRecap = generated
+                    latestHighlightCues = highlights
                     latestSrt = SubtitleDraft.fromNarration(generated)
                     recapOutput.text = generated
-                    status.text = "✓ Local Recap ပြီးပါပြီ။ အင်တာနက်မလိုဘဲ မြန်မာအသံနဲ့ MP4 ထုတ်နိုင်ပါသည်။"
+                    status.text = if (highlights.isNotEmpty())
+                        "✓ Local Recap ပြီးပါပြီ။ ဇာတ်လမ်းတစ်လျှောက်မှ အရေးကြီးအချိန် ၁၂ ခုအထိ ရွေးပြီး Narrated Highlight MP4 ထုတ်နိုင်ပါသည်။"
+                    else
+                        "✓ Local Transcript Recap ပြီးပါပြီ။ အချိန်မှတ်တမ်းမရှိသဖြင့် မူရင်း Video အပြည့်ကို အသုံးပြုမည်။"
                     requestAutoNarratedMp4Destination()
                 }
             } catch (e: Exception) {
@@ -916,9 +929,58 @@ class MainActivity : Activity() {
         }
         val output = File(cacheDir, "hyper_narrated_${System.currentTimeMillis()}.mp4")
         try {
-            val videoItem = EditedMediaItem.Builder(MediaItem.fromUri(source)).setRemoveAudio(true).build()
+            // Build a short montage from recap-selected source timestamps. If no reliable
+            // source timestamps exist, retain the original video rather than guessing.
+            val videoItems = mutableListOf<EditedMediaItem>()
+            val cues = latestHighlightCues
+            if (cues.isNotEmpty()) {
+                val retriever = MediaMetadataRetriever()
+                val sourceDurationMs = try {
+                    retriever.setDataSource(this, source)
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                } finally {
+                    retriever.release()
+                }
+                val narrationRetriever = MediaMetadataRetriever()
+                val narrationDurationMs = try {
+                    narrationRetriever.setDataSource(narrationWav.absolutePath)
+                    narrationRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                } finally {
+                    narrationRetriever.release()
+                }
+                if (sourceDurationMs <= 0L || narrationDurationMs <= 0L) {
+                    throw IllegalStateException("Video/Narration ကြာချိန်ကို ဖတ်မရပါ။")
+                }
+                val clipCount = minOf(cues.size, ((narrationDurationMs + 7_999L) / 8_000L).toInt().coerceAtLeast(1))
+                val chosen = if (clipCount == cues.size) cues else {
+                    (0 until clipCount).map { index ->
+                        cues[(index.toLong() * cues.size / clipCount).toInt()]
+                    }
+                }
+                val perClipMs = ((narrationDurationMs + chosen.size - 1) / chosen.size).coerceIn(3_000L, 15_000L)
+                chosen.forEach { cue ->
+                    val center = ((cue.startMs + cue.endMs) / 2L).coerceIn(0L, sourceDurationMs - 1L)
+                    val start = (center - perClipMs / 2L).coerceAtLeast(0L)
+                    val end = (start + perClipMs).coerceAtMost(sourceDurationMs)
+                    if (end - start >= 1_000L) {
+                        val clippedItem = MediaItem.Builder()
+                            .setUri(source)
+                            .setClippingConfiguration(
+                                MediaItem.ClippingConfiguration.Builder()
+                                    .setStartPositionMs(start)
+                                    .setEndPositionMs(end)
+                                    .build()
+                            )
+                            .build()
+                        videoItems += EditedMediaItem.Builder(clippedItem).setRemoveAudio(true).build()
+                    }
+                }
+            }
+            if (videoItems.isEmpty()) {
+                videoItems += EditedMediaItem.Builder(MediaItem.fromUri(source)).setRemoveAudio(true).build()
+            }
             val audioItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(narrationWav))).setRemoveVideo(true).build()
-            val videoSequence = EditedMediaItemSequence.Builder(listOf(videoItem)).build()
+            val videoSequence = EditedMediaItemSequence.Builder(videoItems).build()
             val audioSequence = EditedMediaItemSequence.Builder(listOf(audioItem)).build()
             val composition = Composition.Builder(listOf(videoSequence, audioSequence)).build()
             output.createNewFile()
@@ -930,7 +992,7 @@ class MainActivity : Activity() {
                                 contentResolver.openOutputStream(destination)?.use { target ->
                                     output.inputStream().use { input -> input.copyTo(target) }
                                 } ?: throw IllegalStateException("MP4 သိမ်းမည့်နေရာ ဖွင့်မရပါ။")
-                                runOnUiThread { status.text = "✓ မြန်မာ Recap အသံနှင့် မူရင်း Video ပေါင်းထားသော MP4 သိမ်းပြီးပါပြီ။" }
+                                runOnUiThread { status.text = if (latestHighlightCues.isNotEmpty()) "✓ မြန်မာ Recap အသံနှင့် ရွေးချယ်ထားသော Scene များပါဝင်သည့် Highlight MP4 သိမ်းပြီးပါပြီ။" else "✓ မြန်မာ Recap အသံနှင့် Video ပေါင်းထားသော MP4 သိမ်းပြီးပါပြီ။" }
                             } catch (e: Exception) {
                                 runOnUiThread { status.text = "MP4 သိမ်းမရပါ: ${e.localizedMessage ?: "Storage error"}" }
                             } finally {
