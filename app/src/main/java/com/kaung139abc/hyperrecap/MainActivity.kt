@@ -1964,10 +1964,15 @@ class MainActivity : Activity() {
                         }
                     }
                 } catch (visualError: Exception) {
-                    runOnUiThread {
-                        status.text = "ရုပ်ပုံစိစစ်မှု မရနိုင်သေးပါ။ Transcript ကို ဆက်လက် Recap လုပ်နေပါသည်..."
-                    }
-                    ""
+                    throw IllegalStateException(
+                        "Offline ရုပ်ပုံစိစစ်မှု မအောင်မြင်ပါ။ ရုပ်ပုံအထောက်အထားမပါဘဲ Multimodal Recap အောင်မြင်သည်ဟု မပြပါ။ အကြောင်းရင်း: ${visualError.localizedMessage ?: visualError.javaClass.simpleName}",
+                        visualError
+                    )
+                }
+                if (visualEvidence.isBlank()) {
+                    throw IllegalStateException(
+                        "Video Frame များမှ အသုံးပြုနိုင်သော ရုပ်ပုံအထောက်အထား မရရှိပါ။ ရုပ်ပုံနားလည်မှု မအောင်မြင်သေးသောကြောင့် Recap ကို မဆက်လုပ်ပါ။"
+                    )
                 }
                 latestVisualContext = visualEvidence
                 handedOffToRecap = true
