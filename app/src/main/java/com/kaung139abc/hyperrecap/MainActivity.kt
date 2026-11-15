@@ -85,12 +85,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         content.addView(button("■  အသံရပ်ရန်") { engine?.stop(); status.text = "အသံရပ်လိုက်ပါပြီ။" })
         exportButton = button("WAV အသံဖိုင် ထုတ်ရန်") { beginExport() }
         content.addView(exportButton)
-        content.addView(title("Voice Clone", 18f, 0xFF9FE9E0.toInt()))
+        content.addView(title("Voice Reference", 18f, 0xFF9FE9E0.toInt()))
         referenceLabel = title("Reference အသံဖိုင်: $referenceSampleName", 12f, muted)
         content.addView(referenceLabel)
         content.addView(button("ကိုယ်ပိုင် / ခွင့်ပြုချက်ရှိသော အသံဖိုင် ရွေးရန်") { chooseReferenceAudio() })
         content.addView(title("မှတ်ချက် — အသံဖိုင်ကို Reference အဖြစ်သာ လက်ရှိသိမ်းထားသည်။ တကယ့် Voice Clone Engine မပေါင်းစည်းရသေးပါ။", 12f, 0xFFFFD28A.toInt()))
-        content.addView(title("Model Manager", 18f, 0xFF9FE9E0.toInt()))
+        content.addView(title("Device TTS Engine", 18f, 0xFF9FE9E0.toInt()))
         content.addView(title("TTS အသံများသည် ဖုန်းတွင် install လုပ်ထားသော Speech Engine ပေါ်မူတည်သည်။ မြန်မာ Neural Model နှင့် အမှန်တကယ် Voice Cloning ကို သီးခြား License/Quality စစ်ဆေးပြီးမှ ထည့်မည်။", 12f, muted))
         content.addView(button("ဖုန်း၏ TTS Voice Data Settings ဖွင့်ရန်") {
             try { startActivity(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
@@ -117,8 +117,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             "${voice.locale.displayName} — ${voice.name}$network"
         }
         voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
-        val savedVoice = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("voice_index", -1)
-        if (savedVoice in voices.indices) voicePicker.setSelection(savedVoice)
+        val savedVoiceName = getSharedPreferences(PREFS, MODE_PRIVATE).getString("voice_name", null)
+        val savedVoice = voices.indexOfFirst { it.name == savedVoiceName }
+        if (savedVoice >= 0) voicePicker.setSelection(savedVoice)
         status.text = if (voices.isEmpty()) {
             "TTS Engine ရှိသော်လည်း အသုံးပြုနိုင်သော Voice မတွေ့ပါ။ ဖုန်း Settings မှ Voice Data ထည့်ပါ။"
         } else {
@@ -313,7 +314,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             .putString("draft_text", editor.text.toString())
             .putInt("speech_rate", rate.progress)
             .putInt("speech_pitch", pitch.progress)
-            .putInt("voice_index", voicePicker.selectedItemPosition)
+            .putString("voice_name", voices.getOrNull(voicePicker.selectedItemPosition)?.name)
             .putString("reference_label", referenceSampleName)
             .apply()
     }
