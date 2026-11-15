@@ -1,2272 +1,306 @@
 package com.kaung139abc.hyperrecap
 
 import android.app.Activity
-import android.app.DownloadManager
 import android.content.Intent
-import android.database.Cursor
-import android.media.MediaMetadataRetriever
-import android.graphics.Bitmap
-import android.util.Base64
-import java.io.ByteArrayOutputStream
-import android.media.MediaExtractor
-import android.media.MediaMuxer
-import android.media.MediaFormat
-import android.media.MediaCodec
-import android.media.MediaPlayer
-import java.nio.ByteBuffer
-import android.speech.tts.TextToSpeech
-import android.speech.tts.Voice
-import android.speech.tts.UtteranceProgressListener
-import android.os.Bundle
-import android.provider.Settings
 import android.net.Uri
-import android.os.Environment
+import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.view.Gravity
-import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.ArrayAdapter
-import android.widget.SeekBar
-import android.widget.TextView
+import android.widget.*
+import java.io.*
 import java.util.Locale
-import java.io.File
-import androidx.media3.common.MediaItem
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.transformer.Composition
-import androidx.media3.transformer.EditedMediaItem
-import androidx.media3.transformer.EditedMediaItemSequence
-import androidx.media3.transformer.Effects
-import androidx.media3.transformer.ExportException
-import androidx.media3.transformer.ExportResult
-import androidx.media3.transformer.Transformer
+import java.util.UUID
 
-class MainActivity : Activity() {
-    private lateinit var selectedInfo: TextView
-    private lateinit var status: TextView
-    private lateinit var linkInput: EditText
-    private lateinit var transcriptInput: EditText
-    private lateinit var recapOutput: TextView
-    private var latestRecap: String = ""
-    private var latestHighlightCues: List<SrtTranscript.Cue> = emptyList()
-    @Volatile private var latestVisualContext: String = ""
-    private var latestSrt: String = ""
-    private var importedSrtCues: List<SrtTranscript.Cue> = emptyList()
-    private var importedSrtSource: String = ""
-    private var tts: TextToSpeech? = null
-    private var availableVoices: List<Voice> = emptyList()
+/**
+ * Voice Studio foundation.
+ * Android system TTS is used as an honest fallback; it is not advertised as neural cloning.
+ */
+class MainActivity : Activity(), TextToSpeech.OnInitListener {
+    private var engine: TextToSpeech? = null
+    private var ready = false
+    private var voices: List<Voice> = emptyList()
+    private lateinit var editor: EditText
     private lateinit var voicePicker: Spinner
-    private lateinit var speechRate: SeekBar
-    private lateinit var speechPitch: SeekBar
-    private lateinit var voiceInfo: TextView
-    private var pendingAudioUri: Uri? = null
-    private var pendingAudioFile: File? = null
-    private var pendingAudioChunks: List<String> = emptyList()
-    private var pendingAudioChunkFiles: MutableList<File> = mutableListOf()
-    private var pendingAudioChunkIndex: Int = 0
-    @Volatile private var pendingSpeechChunks: List<String> = emptyList()
-    @Volatile private var pendingSpeechChunkIndex: Int = 0
-    private var selectedVideoUri: Uri? = null
-    private var pendingExtractedAudio: File? = null
-    private var pendingDecodedWav: File? = null
-    @Volatile private var transcriptionInProgress = false
-    private var pendingSubtitleDestination: Uri? = null
-    private var pendingNarratedMp4Destination: Uri? = null
-    private var pendingNarrationWav: File? = null
-    private var pendingNarrationChunks: List<String> = emptyList()
-    private var pendingNarrationChunkFiles: MutableList<File> = mutableListOf()
-    private var pendingNarrationChunkIndex: Int = 0
-    private var activeTransformer: Transformer? = null
-    private var latestMyanmarNeuralWav: File? = null
-    private var neuralPlayer: MediaPlayer? = null
-    @Volatile private var neuralVoiceInProgress = false
-    @Volatile private var commercialVoiceLoading = false
-    private var selectedCommercialVoiceId: String? = null
-    private var selectedCommercialVoiceName: String? = null
+    private lateinit var rate: SeekBar
+    private lateinit var pitch: SeekBar
+    private lateinit var status: TextView
+    private lateinit var exportButton: Button
+    private var exportChunks: List<String> = emptyList()
+    private var exportFiles = mutableListOf<File>()
+    private var exportIndex = 0
+    private var exportDestination: Uri? = null
+    private var referenceSampleName = "မရွေးရသေးပါ"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        buildScreen()
-        initializeSpeech()
-        handleSharedLink(intent)
+        buildUi()
+        engine = TextToSpeech(this, this)
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleSharedLink(intent)
-    }
-
-    private fun handleSharedLink(intent: Intent?) {
-        if (intent?.action != Intent.ACTION_SEND) return
-
-        // Accept a video file shared from an official social app/browser after
-        // the user has used its permitted Save/Download action.
-        val sharedVideo = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-        if (sharedVideo != null && (intent.type?.startsWith("video/") == true || intent.type == "*/*")) {
-            selectedVideoUri = sharedVideo
-            try {
-                contentResolver.takePersistableUriPermission(
-                    sharedVideo, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: Exception) {
-                // Many share providers grant temporary read access only.
-            }
-            if (::selectedInfo.isInitialized) {
-                selectedInfo.text = queryName(sharedVideo) ?: "မျှဝေထားသော Video"
-                status.text = "Video ကို Share လုပ်ပြီး လက်ခံရရှိပါပြီ။ AUTO RECAP ကိုနှိပ်ပါ။"
-            }
-            return
-        }
-
-        val shared = intent.getStringExtra(Intent.EXTRA_TEXT)
-        if (!shared.isNullOrBlank() && ::linkInput.isInitialized) {
-            val detected = SocialLinkSupport.extract(shared)
-            linkInput.setText(detected?.uri?.toString() ?: shared.trim())
-            if (detected != null && detected.platform != SocialLinkSupport.Platform.UNKNOWN) {
-                status.text = "${detected.platform.label} Link ရရှိပါပြီ။ Platform ၏ ခွင့်ပြုထားသော Download/Save ဖြင့် Video ကို သိမ်းပြီး Share > Hyper Recap AI လုပ်ပါ။"
-            }
-        }
-    }
-
-    private fun openSocialLink(raw: String) {
-        val link = SocialLinkSupport.extract(raw)
-        if (link == null || link.platform == SocialLinkSupport.Platform.UNKNOWN) {
-            status.text = "YouTube, Facebook, TikTok သို့မဟုတ် Instagram Link မှန်ကန်စွာ ထည့်ပါ။"
-            return
-        }
-        try {
-            startActivity(SocialLinkSupport.openIntent(link))
-            status.text = "${link.platform.label} ကို ဖွင့်လိုက်ပါပြီ။ Platform ၏ Save/Download ခွင့်ပြုချက်ဖြင့် Video ကို သိမ်းပြီး Share > Hyper Recap AI ကိုရွေးပါ။ Login/DRM ကန့်သတ်ချက်များကို ကျော်ဖြတ်ခြင်း မလုပ်ပါ။"
-        } catch (e: Exception) {
-            status.text = "Link ဖွင့်မရပါ: ${e.localizedMessage ?: "Browser မတွေ့ပါ"}"
-        }
-    }
-
-    private fun buildScreen() {
+    private fun buildUi() {
+        val bg = 0xFF0D1220.toInt()
+        val panel = 0xFF19243A.toInt()
+        val white = 0xFFF4F6FF.toInt()
+        val muted = 0xFFABB8D0.toInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(24, 36, 24, 24)
-            setBackgroundColor(0xFF10131B.toInt())
+            setPadding(20, 28, 20, 24)
+            setBackgroundColor(bg)
         }
-        fun label(text: String, size: Float, color: Int = 0xFFFFFFFF.toInt()) =
-            TextView(this).apply {
-                this.text = text
-                textSize = size
-                setTextColor(color)
-                gravity = Gravity.CENTER
-            }
-
-        fun sectionTitle(text: String) = TextView(this).apply {
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun title(text: String, size: Float = 16f, color: Int = white) = TextView(this).apply {
+            this.text = text; textSize = size; setTextColor(color)
+            setPadding(0, 12, 0, 8)
+        }
+        fun button(text: String, action: () -> Unit) = Button(this).apply {
             this.text = text
-            textSize = 13f
-            setTextColor(0xFF9FE9E0.toInt())
-            typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.NORMAL)
-            letterSpacing = 0.06f
-            gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            setPadding(14, 13, 14, 13)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFF121B2D.toInt())
-                cornerRadius = 13f * resources.displayMetrics.density
-                setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1), 0xFF354565.toInt())
-            }
+            setOnClickListener { action() }
         }
-
-        val brandHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(14, 14, 14, 14)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFF151D30.toInt())
-                cornerRadius = 22f * resources.displayMetrics.density
-                setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1), 0xFF46527A.toInt())
-            }
+        content.addView(title("VOICE STUDIO AI", 27f, 0xFF9FE9E0.toInt()))
+        content.addView(title("LOCAL TEXT-TO-SPEECH  •  VOICE WORKSPACE", 11f, muted))
+        content.addView(title("စာသားထည့်ရန်"))
+        editor = EditText(this).apply {
+            hint = "ဒီနေရာမှာ ပုံပြင်၊ ဇာတ်ညွှန်း သို့မဟုတ် စာသားကို ထည့်ပါ..."
+            setHintTextColor(muted); setTextColor(white); textSize = 16f
+            gravity = Gravity.TOP or Gravity.START
+            minLines = 8; setPadding(14, 14, 14, 14)
+            setBackgroundColor(panel)
         }
-        brandHeader.addView(ImageView(this).apply {
-            setImageResource(R.drawable.hyper_recap_logo)
-            contentDescription = "Hyper Recap AI Logo"
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            adjustViewBounds = true
-        }, LinearLayout.LayoutParams((76 * resources.displayMetrics.density).toInt(), (76 * resources.displayMetrics.density).toInt()))
-        val brandText = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding((14 * resources.displayMetrics.density).toInt(), 0, 0, 0)
-        }
-        brandText.addView(label("HYPER RECAP AI", 23f, 0xFFC5BCFF.toInt()).apply {
-            gravity = Gravity.START
-            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.NORMAL)
-            letterSpacing = 0.035f
-        })
-        brandText.addView(label("RECAP  •  TRANSLATE  •  DUB", 10f, 0xFFB8C0D9.toInt()).apply {
-            gravity = Gravity.START
-        })
-        brandHeader.addView(brandText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(brandHeader, matchWidth())
-        root.addView(space(10))
-        root.addView(sectionTitle("01  •  LICENSE & ACCOUNT"), matchWidth())
-        val licenseKeyInput = EditText(this).apply {
-            hint = "License Key ထည့်ပါ"
-            setHintTextColor(0xFF9AA4BC.toInt())
-            setTextColor(0xFFFFFFFF.toInt())
-            setSingleLine(true)
-            setPadding(14, 12, 14, 12)
-            setBackgroundColor(0xFF252B3A.toInt())
-            setText(LicenseManager.savedKey(this@MainActivity))
-        }
-        root.addView(licenseKeyInput, matchWidth())
-        val licenseStatus = label("License မစစ်ဆေးရသေးပါ", 12f, 0xFFFFD28A.toInt())
-        root.addView(licenseStatus, matchWidth())
-        root.addView(Button(this).apply {
-            text = "Activate / Verify License"
-            setOnClickListener {
-                val key = licenseKeyInput.text.toString().trim()
-                if (key.isBlank()) {
-                    licenseStatus.text = "License Key ထည့်ပါ။"
-                } else {
-                    licenseStatus.text = "License စစ်ဆေးနေပါသည်..."
-                    Thread {
-                        val result = LicenseManager.activate(this@MainActivity, key)
-                        runOnUiThread {
-                            licenseStatus.text = if (result.valid) "✓ ${result.message} — ${result.plan}" else "✕ ${result.message}"
-                        }
-                    }.start()
-                }
-            }
-        }, matchWidth())
-        root.addView(space(16))
-
-        root.addView(sectionTitle("02  •  VIDEO SOURCE"), matchWidth())
-        linkInput = EditText(this).apply {
-            hint = "Video link ကို ဒီမှာ Paste လုပ်ပါ"
-            setHintTextColor(0xFF9AA4BC.toInt())
-            setTextColor(0xFFFFFFFF.toInt())
-            textSize = 15f
-            setSingleLine(true)
-            setPadding(14, 12, 14, 12)
-            setBackgroundColor(0xFF252B3A.toInt())
-        }
-        root.addView(linkInput, matchWidth())
-
-        val linkButton = Button(this).apply {
-            text = "Direct Video Link Download"
-            setOnClickListener { requireLicense { downloadDirectVideo(linkInput.text.toString().trim()) } }
-        }
-        root.addView(linkButton, matchWidth())
-        root.addView(Button(this).apply {
-            text = "YouTube / Facebook / TikTok / Instagram Link ဖွင့်ရန်"
-            setOnClickListener { openSocialLink(linkInput.text.toString()) }
-        }, matchWidth())
-
-        root.addView(sectionTitle("03  •  AUTOMATIC RECAP"), matchWidth())
-        val choose = Button(this).apply {
-            text = "ဖုန်းထဲက Video ရွေးရန်"
-            setOnClickListener { chooseVideo() }
-        }
-        root.addView(choose, matchWidth())
-        root.addView(Button(this).apply {
-            text = "✨ AUTO RECAP — Video မှ ဇာတ်လမ်းအကျဉ်း အလိုအလျောက်ထုတ်ရန်"
-            setOnClickListener {
-                if (selectedVideoUri == null) {
-                    status.text = "အရင်ဆုံး ဖုန်းထဲက Video ရွေးပါ။"
-                    android.widget.Toast.makeText(this@MainActivity, status.text, android.widget.Toast.LENGTH_LONG).show()
-                } else {
-                    transcribeSelectedVideo()
-                }
-            }
-        }, matchWidth())
-        root.addView(label("Video ရွေးပြီး AUTO RECAP ကိုနှိပ်ရုံပါ။ အသံကို စာသားပြောင်းပြီး Recap ကို အလိုအလျောက်ဖန်တီးပေးမည်။", 12f, 0xFF20C9B5.toInt()))
-
-        selectedInfo = label("Video မရွေးရသေးပါ", 16f)
-        selectedInfo.setPadding(0, 24, 0, 16)
-        root.addView(selectedInfo)
-
-        root.addView(sectionTitle("04  •  AI TOOLS"), matchWidth())
-        root.addView(Button(this).apply {
-            text = "Cloud AI Generative Movie Recap (Internet လိုအပ်)"
-            setOnClickListener { requireLicense { generateCloudAiRecap() } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "English → Myanmar AI Translation (Offline / API Key မလို)"
-            setOnClickListener { requireLicense { translateTranscriptToMyanmar() } }
-        }, matchWidth())
-        root.addView(sectionTitle("05  •  RECAP RESULT & EXPORT"), matchWidth())
-        // Internal transcript buffer: populated automatically by Whisper; not shown as a required manual input.
-        transcriptInput = EditText(this)
-        root.addView(label("YOUR RECAP", 18f, 0xFF8EA5FF.toInt()))
-        recapOutput = label("Video ကိုရွေးပြီး AUTO RECAP ကိုနှိပ်ပါ။ ရလဒ် ဒီနေရာမှာ ပေါ်လာပါမည်။", 14f)
-        recapOutput.gravity = Gravity.START
-        root.addView(recapOutput, matchWidth())
-        root.addView(Button(this).apply {
-            text = "Recap TXT သိမ်းရန်"
-            setOnClickListener { requireLicense { saveRecap() } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "Recap Subtitle SRT ထုတ်ရန်"
-            setOnClickListener { requireLicense { saveSubtitles() } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "မြန်မာစာတန်းထိုး MP4 ထုတ်ရန် (Video ထဲ တစ်ခါတည်းထည့်)"
-            setOnClickListener { requireLicense { requestSubtitleMp4Destination() } }
-        }, matchWidth())
-
-        root.addView(sectionTitle("06  •  VOICE STUDIO"), matchWidth())
-        root.addView(space(6))
-        root.addView(label("VOICE STUDIO", 18f, 0xFF8EA5FF.toInt()))
-        root.addView(label("ဖုန်းထဲတွင် ရရှိနိုင်သော အသံများကို ရွေးချယ်ပါ", 13f, 0xFFB8C0D9.toInt()))
+        content.addView(editor, LinearLayout.LayoutParams(-1, -2))
+        content.addView(title("Voice Library", 18f, 0xFF9FE9E0.toInt()))
         voicePicker = Spinner(this)
-        root.addView(voicePicker, matchWidth())
-        voiceInfo = label("အသံစာရင်း ဖတ်နေပါသည်...", 12f, 0xFFB8C0D9.toInt())
-        root.addView(voiceInfo, matchWidth())
-        root.addView(label("အသုံးပြုမည့်အသံများသည် ဖုန်းထဲတွင် ရှိပြီး Internet မလိုသော မြန်မာ Voice များသာ ဖြစ်သည်။", 12f, 0xFFB8C0D9.toInt()))
-        root.addView(label("အသံမြန်နှုန်း", 13f, 0xFFFFFFFF.toInt()))
-        speechRate = SeekBar(this).apply { max = 150; progress = 50 }
-        root.addView(speechRate, matchWidth())
-        root.addView(label("အသံအနိမ့်အမြင့်", 13f, 0xFFFFFFFF.toInt()))
-        speechPitch = SeekBar(this).apply { max = 150; progress = 50 }
-        root.addView(speechPitch, matchWidth())
-        root.addView(Button(this).apply {
-            text = "ရွေးထားသောအသံဖြင့် Recap ဖတ်ရန်"
-            setOnClickListener { requireLicense { speakRecap() } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "အသံစမ်းနားထောင်ရန်"
-            setOnClickListener { requireLicense { previewVoice() } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "အသံရပ်ရန်"
-            setOnClickListener {
-                tts?.stop()
-                pendingSpeechChunks = emptyList()
-                pendingSpeechChunkIndex = 0
-                status.text = "အသံဖတ်ခြင်း ရပ်လိုက်ပါပြီ။"
-            }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "ဖုန်း၏ TTS အသံအသစ်များ ထည့်သွင်းရန်"
-            setOnClickListener {
-                try {
-                    startActivity(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA))
-                    status.text = "TTS Voice Data ထည့်သွင်းရန် Settings ကို ဖွင့်ထားပါသည်။ Burmese / မြန်မာ အသံ Data ရှိမရှိ စစ်ဆေးပါ။"
-                } catch (_: Exception) {
-                    status.text = "ဖုန်း Settings > Additional settings > Languages & input > Text-to-speech output ထဲဝင်ပြီး Burmese / မြန်မာ Voice Data ရှိမရှိ စစ်ဆေးပါ။"
-                    android.widget.Toast.makeText(this@MainActivity, status.text.toString(), android.widget.Toast.LENGTH_LONG).show()
-                }
-            }
-        }, matchWidth())
-
-        root.addView(Button(this).apply {
-            text = "Recap အသံဖိုင် WAV သိမ်းရန်"
-            setOnClickListener { requireLicense { saveRecapAudio() } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "မြန်မာ Neural AI Voice (Commercial Model မရသေး)"
-            setOnClickListener { requireLicense { status.text = "လက်ရှိ MMS မြန်မာအသံ Model သည် CC BY-NC 4.0 ဖြစ်၍ စီးပွားဖြစ်အသုံးပြုခွင့်မရှိပါ။ Commercial License ရရှိသော Model ထည့်သွင်းပြီးမှ ဖွင့်ပေးပါမည်။" } }
-        }, matchWidth())
-        root.addView(Button(this).apply {
-            text = "မြန်မာ Neural Voice WAV သိမ်းရန် (မရသေး)"
-            setOnClickListener { requireLicense { status.text = "စီးပွားဖြစ်အသုံးပြုခွင့်ရှိသော မြန်မာ Neural TTS Model မထည့်ရသေးပါ။" } }
-        }, matchWidth())
-        root.addView(label("မြန်မာ Neural TTS ကို စီးပွားဖြစ်ခွင့်ရှိသော Model ရရှိသည်အထိ ပိတ်ထားသည်။ လက်ရှိအသံရွေးချယ်မှုတွင် ဖုန်း၏ TTS Engine အသံများကို အသုံးပြုပါ။", 11f, 0xFFFFD28A.toInt()))
-
-        status = label("အင်တာနက်မလို၊ API key မလို၊ daily quota မရှိသော local text recap", 13f, 0xFFB8C0D9.toInt())
-        root.addView(status)
-
-        val note = label(
-            "မှတ်ချက် — Whisper multilingual Base int8 Model ကို ပထမဆုံးအသုံးပြုချိန်တွင် Internet ဖြင့် 208 MB ခန့် Download လုပ်ရမည်။ ထို့နောက် Speech-to-Text ကို Offline လုပ်နိုင်သည်။ YouTube/Facebook/TikTok/Instagram Link များကို Official App/Browser ဖြင့်ဖွင့်ပါ။ Platform က ခွင့်ပြုသော Save/Download ပြီးနောက် Share > Hyper Recap AI ဖြင့် Video ကို တိုက်ရိုက်လက်ခံနိုင်သည်။ MP4 Subtitle Export သည် Video ကို ပြန် Encode လုပ်သောကြောင့် အချိန်နှင့် Battery ပိုသုံးနိုင်သည်။",
-            13f, 0xFFFFD28A.toInt()
-        )
-        note.setPadding(0, 28, 0, 0)
-        root.addView(note)
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            setBackgroundColor(0xFF10131B.toInt())
-            addView(root, android.view.ViewGroup.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-        }
-        // Put the main workflow first: choose video, recap, export, voice;
-        // keep secondary AI tools and license controls below the primary actions.
-        arrangeDashboardSections(root)
-        applyPremiumTheme(root)
-        setContentView(scroll)
+        content.addView(voicePicker)
+        content.addView(title("အသံအမြန်နှုန်း", 13f, muted))
+        rate = SeekBar(this).apply { max = 150; progress = 50 }
+        content.addView(rate)
+        content.addView(title("အသံ Pitch", 13f, muted))
+        pitch = SeekBar(this).apply { max = 150; progress = 50 }
+        content.addView(pitch)
+        content.addView(button("▶  အသံနားထောင်ရန်") { speakText() })
+        content.addView(button("■  အသံရပ်ရန်") { engine?.stop(); status.text = "အသံရပ်လိုက်ပါပြီ။" })
+        exportButton = button("WAV အသံဖိုင် ထုတ်ရန်") { beginExport() }
+        content.addView(exportButton)
+        content.addView(title("Voice Clone", 18f, 0xFF9FE9E0.toInt()))
+        content.addView(title("Reference အသံဖိုင်: $referenceSampleName", 12f, muted))
+        content.addView(button("ကိုယ်ပိုင် / ခွင့်ပြုချက်ရှိသော အသံဖိုင် ရွေးရန်") { chooseReferenceAudio() })
+        content.addView(title("မှတ်ချက် — အသံဖိုင်ကို Reference အဖြစ်သာ လက်ရှိသိမ်းထားသည်။ တကယ့် Voice Clone Engine မပေါင်းစည်းရသေးပါ။", 12f, 0xFFFFD28A.toInt()))
+        content.addView(title("Model Manager", 18f, 0xFF9FE9E0.toInt()))
+        content.addView(title("TTS အသံများသည် ဖုန်းတွင် install လုပ်ထားသော Speech Engine ပေါ်မူတည်သည်။ မြန်မာ Neural Model နှင့် အမှန်တကယ် Voice Cloning ကို သီးခြား License/Quality စစ်ဆေးပြီးမှ ထည့်မည်။", 12f, muted))
+        content.addView(button("ဖုန်း၏ TTS Voice Data Settings ဖွင့်ရန်") {
+            try { startActivity(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)) }
+            catch (_: Exception) { status.text = "Settings > Text-to-speech output မှ အသံများကို စစ်ဆေးပါ။" }
+        })
+        status = title("TTS Engine စတင်ဖွင့်နေပါသည်...", 13f, 0xFF9FE9E0.toInt())
+        content.addView(status)
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
     }
 
-    private fun arrangeDashboardSections(root: LinearLayout) {
-        val sectionOrder = listOf(
-            "02  •  VIDEO SOURCE",
-            "03  •  AUTOMATIC RECAP",
-            "05  •  RECAP RESULT & EXPORT",
-            "06  •  VOICE STUDIO",
-            "04  •  AI TOOLS",
-            "01  •  LICENSE & ACCOUNT"
-        )
-        val children = (0 until root.childCount).map { root.getChildAt(it) }
-        fun sectionIndex(title: String): Int = children.indexOfFirst { view ->
-            view is TextView && view.text?.toString()?.contains(title) == true
+    override fun onInit(result: Int) {
+        if (result != TextToSpeech.SUCCESS) {
+            status.text = "ဖုန်း၏ Text-to-Speech Engine စတင်မရပါ။ TTS Engine တစ်ခု install လုပ်ပါ။"
+            return
         }
-        val starts = sectionOrder.map { sectionIndex(it) }
-        if (starts.any { it < 0 }) return
-
-        val headerEnd = starts.minOrNull() ?: return
-        val sectionStarts = children.indices.filter { index ->
-            val view = children[index]
-            view is TextView && sectionOrder.any { title ->
-                view.text?.toString()?.contains(title) == true
+        ready = true
+        val tts = engine ?: return
+        tts.language = Locale.getDefault()
+        voices = (tts.voices ?: emptySet()).sortedWith(compareBy<Voice>({ it.locale.displayName }, { it.name }))
+        val labels = voices.map { voice ->
+            val network = if (voice.isNetworkConnectionRequired) " • Online" else " • Offline"
+            "${voice.locale.displayName} — ${voice.name}$network"
+        }
+        voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        status.text = "TTS အသင့်ဖြစ်ပါပြီ။ ဖုန်းတွင် ရရှိနိုင်သော Voice ${voices.size} ခု တွေ့သည်။"
+        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) { }
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId?.startsWith("export-") == true) runOnUiThread { exportNextChunk() }
             }
-        }
-        val firstSection = sectionStarts.minOrNull() ?: return
-        val tailStart = (sectionStarts.maxOrNull() ?: return) + 1
-        val sections = sectionOrder.mapIndexed { orderIndex, _ ->
-            val start = starts[orderIndex]
-            val end = (sectionStarts.firstOrNull { it > start } ?: tailStart)
-            children.subList(start, end)
-        }
-        val header = children.subList(0, firstSection)
-        val tail = children.subList(tailStart, children.size)
-        root.removeAllViews()
-        header.forEach { root.addView(it) }
-
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
-        sections.forEachIndexed { index, section ->
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), dp(8), dp(12), dp(10))
-                background = android.graphics.drawable.GradientDrawable(
-                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(0xFF111B2E.toInt(), 0xFF0D1728.toInt())
-                ).apply {
-                    cornerRadius = dp(21).toFloat()
-                    setStroke(dp(1).coerceAtLeast(1),
-                        if (index == 0) 0xFF3B7181.toInt() else 0xFF293957.toInt())
-                }
-                elevation = dp(if (index == 0) 5 else 2).toFloat()
+            @Deprecated("Deprecated by Android")
+            override fun onError(utteranceId: String?) {
+                runOnUiThread { failExport("TTS အသံထုတ်ရာတွင် Error ဖြစ်နေပါသည်။") }
             }
-            section.forEach { card.addView(it) }
-            root.addView(card, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = dp(13)
-            })
-        }
-        tail.forEach { root.addView(it) }
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                runOnUiThread { failExport("TTS Error Code: $errorCode") }
+            }
+        })
     }
 
-    private fun applyPremiumTheme(root: LinearLayout) {
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
-        val violet = 0xFF9A8CFF.toInt()
-        val mint = 0xFF39E6CE.toInt()
-        val muted = 0xFF9EACC8.toInt()
-        val panel = 0xFF151F34.toInt()
-        val border = 0xFF2D3C5B.toInt()
-
-        fun shape(fill: Int, stroke: Int, radius: Int = 18) =
-            android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dp(radius).toFloat()
-                setColor(fill)
-                setStroke(dp(1).coerceAtLeast(1), stroke)
-            }
-
-        root.setPadding(dp(18), dp(22), dp(18), dp(34))
-        root.setBackgroundColor(0xFF080D19.toInt())
-        root.clipToPadding = false
-
-        val brand = root.getChildAt(0) as? LinearLayout
-        brand?.apply {
-            background = android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF202B4B.toInt(), 0xFF171D35.toInt(), 0xFF142B38.toInt())
-            ).apply {
-                cornerRadius = dp(24).toFloat()
-                setStroke(dp(1), 0xFF53628D.toInt())
-            }
-            elevation = dp(7).toFloat()
-            setPadding(dp(14), dp(15), dp(14), dp(15))
-        }
-        val brandTitle = (brand?.getChildAt(1) as? LinearLayout)?.getChildAt(0) as? TextView
-        brandTitle?.apply {
-            textSize = 22f
-            setTextColor(0xFFD8D1FF.toInt())
-            letterSpacing = 0.045f
-        }
-        val tagline = (brand?.getChildAt(1) as? LinearLayout)?.getChildAt(1) as? TextView
-        tagline?.apply { setTextColor(0xFFB6C5E0.toInt()); textSize = 10.5f }
-
-        fun style(view: View) {
-            when (view) {
-                is Button -> {
-                    val caption = view.text?.toString().orEmpty()
-                    val primary = caption.contains("AUTO RECAP") ||
-                        caption.contains("ဖုန်းထဲက Video ရွေးရန်") ||
-                        caption.contains("Activate") ||
-                        caption.contains("Narrated") ||
-                        caption.contains("MP4 ထုတ်ရန်") ||
-                        caption.contains("Recap ဖတ်ရန်")
-                    val colors = if (primary)
-                        intArrayOf(0xFF6758D8.toInt(), 0xFF3D8F9A.toInt())
-                    else intArrayOf(0xFF202C45.toInt(), 0xFF172237.toInt())
-                    view.background = android.graphics.drawable.GradientDrawable(
-                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, colors
-                    ).apply {
-                        cornerRadius = dp(15).toFloat()
-                        setStroke(dp(1), if (primary) 0xFF61E4D1.toInt() else border)
-                    }
-                    view.backgroundTintList = null
-                    view.setTextColor(0xFFF7F8FF.toInt())
-                    view.textSize = if (primary) 14.5f else 13.2f
-                    view.typeface = android.graphics.Typeface.create(
-                        "sans-serif-medium", android.graphics.Typeface.NORMAL
-                    )
-                    view.isAllCaps = false
-                    view.minHeight = dp(if (primary) 54 else 48)
-                    view.setPadding(dp(15), dp(11), dp(15), dp(11))
-                    view.elevation = dp(if (primary) 4 else 1).toFloat()
-                    (view.layoutParams as? LinearLayout.LayoutParams)?.let {
-                        it.bottomMargin = dp(9)
-                        it.topMargin = dp(2)
-                        view.layoutParams = it
-                    }
-                }
-                is EditText -> {
-                    view.background = shape(0xFF111A2C.toInt(), 0xFF405477.toInt(), 14)
-                    view.setTextColor(0xFFF5F7FF.toInt())
-                    view.setHintTextColor(0xFF7F8EAB.toInt())
-                    view.textSize = 14f
-                    view.setPadding(dp(15), dp(14), dp(15), dp(14))
-                    view.backgroundTintList = null
-                }
-                is Spinner -> {
-                    view.background = shape(panel, 0xFF405477.toInt(), 13)
-                    view.setPadding(dp(10), dp(7), dp(10), dp(7))
-                }
-                is SeekBar -> {
-                    view.progressTintList = android.content.res.ColorStateList.valueOf(mint)
-                    view.thumbTintList = android.content.res.ColorStateList.valueOf(violet)
-                    view.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF34415A.toInt())
-                }
-                is TextView -> {
-                    val caption = view.text?.toString().orEmpty()
-                    if ((caption.take(2).toIntOrNull() ?: 0) in 1..6 && caption.contains("•")) {
-                        view.background = shape(0xFF17243A.toInt(), 0xFF344B70.toInt(), 13)
-                        view.setTextColor(0xFF82E8D9.toInt())
-                        view.textSize = 12.5f
-                        view.typeface = android.graphics.Typeface.create("sans-serif-bold", 0)
-                        view.letterSpacing = 0.07f
-                        view.gravity = Gravity.CENTER_VERTICAL
-                        view.setPadding(dp(14), dp(13), dp(14), dp(13))
-                        (view.layoutParams as? LinearLayout.LayoutParams)?.let {
-                            it.topMargin = dp(17); it.bottomMargin = dp(9); view.layoutParams = it
-                        }
-                    } else {
-                        view.setTextColor(if (caption.contains("HYPER")) 0xFFD8D1FF.toInt() else muted)
-                        if (view.textSize >= 18f) {
-                            view.typeface = android.graphics.Typeface.create("sans-serif-bold", 0)
-                            view.setPadding(0, dp(14), 0, dp(8))
-                        }
-                        if (caption.contains("AUTO RECAP") || caption.contains("ရလဒ် ဒီနေရာ")) {
-                            view.setLineSpacing(dp(3).toFloat(), 1f)
-                        }
-                    }
-                }
-            }
-        }
-
-        for (i in 0 until root.childCount) {
-            val child = root.getChildAt(i)
-            style(child)
-            if (child is android.view.ViewGroup) {
-                for (j in 0 until child.childCount) style(child.getChildAt(j))
-            }
-        }
-    }
-
-    private fun space(height: Int) = View(this).apply {
-        layoutParams = LinearLayout.LayoutParams(1, height)
-    }
-    private fun matchWidth() = LinearLayout.LayoutParams(
-        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-    )
-
-
-    private fun requireLicense(action: () -> Unit) {
-        status.text = "License အတည်ပြုနေပါသည်..."
-        android.widget.Toast.makeText(this, "License စစ်ဆေးနေပါသည်...", android.widget.Toast.LENGTH_SHORT).show()
-        Thread {
-            val result = LicenseManager.check(this)
-            runOnUiThread {
-                if (result.valid) {
-                    status.text = "License OK — ${result.plan}"
-                    android.widget.Toast.makeText(this, "License အတည်ပြုပြီးပါပြီ", android.widget.Toast.LENGTH_SHORT).show()
-                    action()
-                } else {
-                    val message = when (result.message) {
-                        "LICENSE_REQUIRED" -> "License Key မထည့်ရသေးပါ။ အပေါ်ဘက်ရှိ Activate / Verify License မှာ Key ထည့်ပြီး Activate လုပ်ပါ။"
-                        else -> "အသုံးပြုခွင့်မရှိပါ: ${result.message}"
-                    }
-                    status.text = message
-                    android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
-                    android.app.AlertDialog.Builder(this)
-                        .setTitle("Hyper Recap AI — License")
-                        .setMessage(message)
-                        .setPositiveButton("OK", null)
-                        .show()
-                }
-            }
-        }.start()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        val savedLicense = LicenseManager.savedKey(this)
-        if (savedLicense.isNotBlank()) {
-            Thread {
-                val result = LicenseManager.check(this)
-                runOnUiThread {
-                    if (::status.isInitialized && !result.valid) status.text = "License အခြေအနေ: ${result.message}"
-                }
-            }.start()
-        }
-        // Refresh voice data after returning from Android TTS settings.
-        if (tts != null && ::voicePicker.isInitialized) {
-            try {
-                val voices = tts?.voices ?: emptySet()
-                val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
-                availableVoices = voices.filter { voice ->
-                    val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
-                    voice.locale.language == "my" && !voice.isNetworkConnectionRequired && excluded.none { identity.contains(it) }
-                }.sortedWith(compareBy<Voice>(
-                    { if (it.isNetworkConnectionRequired) 1 else 0 },
-                    { -it.quality }, { it.locale.displayName }, { it.name }
-                ))
-                val labels = availableVoices.map { voice ->
-                    val mode = if (voice.isNetworkConnectionRequired) "Online" else "Offline"
-                    "${voice.locale.displayName} — ${voice.name} — $mode — Quality ${voice.quality}"
-                }
-                voicePicker.adapter = ArrayAdapter(
-                    this, android.R.layout.simple_spinner_dropdown_item,
-                    if (labels.isEmpty()) listOf("အသုံးပြုနိုင်သော အသံမရှိပါ") else labels
-                )
-                if (labels.isNotEmpty()) {
-                    voicePicker.setSelection(0)
-                    tts?.voice = availableVoices[0]
-                    voiceInfo.text = "Offline မြန်မာအသံ ${labels.size} မျိုး ရရှိသည်။ Network voice များကို ဖယ်ထားသည်။"
-                } else {
-                    voiceInfo.text = "TTS အသံမတွေ့ပါ။ Android Text-to-speech Settings မှ Voice data ထည့်ပါ။"
-                }
-            } catch (e: Exception) {
-                voiceInfo.text = "အသံစာရင်း ပြန်ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}"
-            }
-        }
-    }
-
-    private fun initializeSpeech() {
-        tts = TextToSpeech(this) { result ->
+    private fun applyVoice(): Boolean {
+        val tts = engine ?: return false
+        if (!ready) { status.text = "TTS Engine မပြင်ဆင်ရသေးပါ။"; return false }
+        val index = voicePicker.selectedItemPosition
+        if (index in voices.indices) {
+            val selected = voices[index]
+            val result = tts.setVoice(selected)
             if (result != TextToSpeech.SUCCESS) {
-                voiceInfo.text = "ဖုန်း၏ Text-to-Speech Engine ကို စတင်မရပါ။ Android Settings မှ TTS engine/voice data ကို စစ်ဆေးပါ။"
-                return@TextToSpeech
-            }
-            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
-                override fun onError(utteranceId: String?) {
-                    val narrationFailed = utteranceId == "hyper_auto_narration" ||
-                        utteranceId?.startsWith("hyper_auto_narration_chunk_") == true
-                    val recapAudioFailed = utteranceId?.startsWith("hyper_recap_audio_chunk_") == true
-                    if (narrationFailed) {
-                        // TTS callbacks run off the UI thread. Clear every pending file and
-                        // reset the export state so a failed chunk cannot leave the screen
-                        // awake or make the next export look permanently busy.
-                        cleanupPendingNarration()
-                    }
-                    if (recapAudioFailed) cleanupPendingAudioExport()
-                    if (!recapAudioFailed) {
-                        pendingAudioFile?.delete()
-                        pendingAudioFile = null
-                        pendingAudioUri = null
-                    }
-                    runOnUiThread {
-                        if (narrationFailed) {
-                            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        }
-                        status.text = if (utteranceId == "hyper_auto_narration" ||
-                            utteranceId?.startsWith("hyper_auto_narration_chunk_") == true)
-                            "မြန်မာ TTS က Narration WAV မထုတ်နိုင်ပါ။ Burmese voice data/Internet ကို စစ်ဆေးပါ။"
-                        else "အသံဖိုင်ဖန်တီးရာတွင် အမှားဖြစ်နေပါသည်။"
-                    }
-                }
-                override fun onDone(utteranceId: String?) {
-                    if (utteranceId?.startsWith("hyper_unlimited_speech_chunk_") == true) {
-                        val completedIndex = utteranceId.substringAfterLast("_").toIntOrNull() ?: return
-                        if (completedIndex != pendingSpeechChunkIndex) return
-                        pendingSpeechChunkIndex++
-                        if (pendingSpeechChunkIndex < pendingSpeechChunks.size) {
-                            speakNextRecapChunk()
-                        } else {
-                            pendingSpeechChunks = emptyList()
-                            pendingSpeechChunkIndex = 0
-                            runOnUiThread { status.text = "Recap အသံဖတ်ပြီးပါပြီ။" }
-                        }
-                        return
-                    }
-                    if (utteranceId?.startsWith("hyper_recap_audio_chunk_") == true) {
-                        val completedIndex = utteranceId.substringAfterLast("_").toIntOrNull() ?: return
-                        if (completedIndex != pendingAudioChunkIndex) return
-                        pendingAudioChunkIndex++
-                        if (pendingAudioChunkIndex < pendingAudioChunks.size) {
-                            try {
-                                synthesizeNextRecapAudioChunk()
-                            } catch (e: Exception) {
-                                cleanupPendingAudioExport()
-                                runOnUiThread { status.text = "နောက်ထပ် အသံအပိုင်းကို ဖန်တီးမရပါ: " + (e.localizedMessage ?: "TTS error") }
-                            }
-                        } else {
-                            finishRecapAudioExport()
-                        }
-                        return
-                    }
-                    if (utteranceId?.startsWith("hyper_auto_narration_chunk_") == true) {
-                        val completedIndex = utteranceId.substringAfterLast("_").toIntOrNull() ?: return
-                        if (completedIndex != pendingNarrationChunkIndex) return
-                        pendingNarrationChunkIndex++
-                        if (pendingNarrationChunkIndex < pendingNarrationChunks.size) {
-                            try {
-                                synthesizeNextNarrationChunk()
-                            } catch (e: Exception) {
-                                cleanupPendingNarration()
-                                runOnUiThread { status.text = "နောက်ထပ် အသံအပိုင်းဖန်တီးမရပါ: " + (e.localizedMessage ?: "TTS error") }
-                            }
-                        } else {
-                            val wav = pendingNarrationWav ?: return
-                            val destination = pendingNarratedMp4Destination ?: return
-                            Thread {
-                                try {
-                                    mergeNarrationWavChunks(pendingNarrationChunkFiles, wav)
-                                    cleanupPendingNarration(keepFinalWav = true)
-                                    runOnUiThread { exportNarratedMp4(destination, wav) }
-                                } catch (e: Exception) {
-                                    wav.delete()
-                                    cleanupPendingNarration()
-                                    runOnUiThread { status.text = "Narration WAV ပေါင်းစပ်မရပါ: " + (e.localizedMessage ?: "WAV error") }
-                                }
-                            }.start()
-                        }
-                        return
-                    }
-                    if (utteranceId != "hyper_recap_audio_export") return
-                    val sourceFile = pendingAudioFile
-                    val destination = pendingAudioUri
-                    if (sourceFile == null || destination == null) return
-                    Thread {
-                        try {
-                            contentResolver.openOutputStream(destination)?.use { output ->
-                                sourceFile.inputStream().use { input -> input.copyTo(output) }
-                            } ?: throw IllegalStateException("Output stream unavailable")
-                            runOnUiThread { status.text = "Recap အသံဖိုင် WAV အဖြစ် သိမ်းပြီးပါပြီ။" }
-                        } catch (e: Exception) {
-                            runOnUiThread { status.text = "အသံဖိုင် သိမ်းမရပါ: ${e.localizedMessage ?: "Error"}" }
-                        } finally {
-                            sourceFile.delete()
-                            pendingAudioFile = null
-                            pendingAudioUri = null
-                        }
-                    }.start()
-                }
-            })
-            try {
-                val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
-                // Burmese-only voice list: never offer other-language fallback voices.
-                availableVoices = (tts?.voices ?: emptySet())
-                    .filter { voice ->
-                        val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
-                        voice.locale.language == "my" && !voice.isNetworkConnectionRequired && excluded.none { identity.contains(it) }
-                    }
-                    .sortedWith(compareBy<Voice>({ if (it.isNetworkConnectionRequired) 1 else 0 }, { -it.quality }, { it.name }))
-                val labels = availableVoices.map { voice ->
-                    val mode = if (voice.isNetworkConnectionRequired) "Online" else "Offline"
-                    "${voice.locale.displayName} — ${voice.name} — $mode — Quality ${voice.quality}"
-                }
-                if (labels.isEmpty()) {
-                    voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, listOf("အသုံးပြုနိုင်သော အသံမရှိပါ"))
-                    voiceInfo.text = "Offline မြန်မာ TTS အသံ မတွေ့ပါ။ Online voice သို့မဟုတ် အခြားဘာသာအသံကို အစားထိုးမသုံးပါ။"
-                } else {
-                    voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
-                    voicePicker.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                        override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-                        override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                            try {
-                                tts?.voice = availableVoices[position]
-                                val v = availableVoices[position]
-                                voiceInfo.text = "ရွေးထားသည်: ${v.locale.displayName} | ${if (v.isNetworkConnectionRequired) "Online voice (Internet လိုနိုင်)" else "Offline voice"} | Quality ${v.quality}"
-                            } catch (e: Exception) {
-                                voiceInfo.text = "ဒီအသံကို ရွေးမရပါ: ${e.localizedMessage ?: "Error"}"
-                            }
-                        }
-                    }
-                    voiceInfo.text = "Offline မြန်မာအသံ ${labels.size} မျိုးသာ ပြထားသည်။ အသံအရည်အသွေးသည် ဖုန်း TTS Engine ပေါ်မူတည်ပါသည်။"
-                }
-            } catch (e: Exception) {
-                voiceInfo.text = "အသံစာရင်း ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}"
+                status.text = "ရွေးထားသော Voice ကို အသုံးပြုမရပါ။"
+                return false
             }
         }
+        tts.setSpeechRate(0.5f + rate.progress / 100f)
+        tts.setPitch(0.5f + pitch.progress / 100f)
+        return true
     }
 
-
-
-    private fun chooseCommercialMyanmarVoice() {
-        if (commercialVoiceLoading) {
-            status.text = "မြန်မာ Neural Voice စာရင်း ဖတ်နေဆဲပါ။"
-            return
-        }
-        commercialVoiceLoading = true
-        status.text = "စီးပွားဖြစ် Burmese Neural Voice များကို ရှာဖွေနေပါသည်..."
-        Thread {
-            try {
-                val voices = CloudAiClient.fetchCommercialMyanmarVoices(this)
-                runOnUiThread {
-                    if (voices.isEmpty()) {
-                        status.text = "Burmese အဖြစ် အတည်ပြုထားသော Commercial Voice မတွေ့ပါ။ Worker တွင် ELEVENLABS_API_KEY နှင့် Burmese voice access ကို စစ်ဆေးပါ။"
-                    } else {
-                        val labels = voices.map { "${it.name} — ${it.gender}" }.toTypedArray()
-                        val selected = voices.indexOfFirst { it.id == selectedCommercialVoiceId }.coerceAtLeast(0)
-                        android.app.AlertDialog.Builder(this)
-                            .setTitle("မြန်မာ Neural Voice ရွေးချယ်ပါ")
-                            .setSingleChoiceItems(labels, selected) { dialog, which ->
-                                val voice = voices[which]
-                                selectedCommercialVoiceId = voice.id
-                                selectedCommercialVoiceName = voice.name
-                                voiceInfo.text = "Commercial Neural Voice: ${voice.name} (${voice.gender}) — Online"
-                                status.text = "မြန်မာ Neural Voice ရွေးပြီးပါပြီ။ Recap MP4 ထုတ်ချိန်တွင် ဒီအသံကို အသုံးပြုမည်။"
-                                dialog.dismiss()
-                            }
-                            .setNegativeButton("ပိတ်မည်", null)
-                            .show()
-                    }
-                }
-            } catch (error: Exception) {
-                runOnUiThread {
-                    status.text = "Commercial Neural Voice မရနိုင်ပါ: ${error.localizedMessage ?: "Server/API error"}"
-                }
-            } finally {
-                commercialVoiceLoading = false
+    private fun splitText(source: String, limit: Int = 2200): List<String> {
+        val normalized = source.replace("\r", "").trim()
+        if (normalized.isEmpty()) return emptyList()
+        val sentences = normalized.split(Regex("(?<=[။.!?])\\s+|\\n+")).filter { it.isNotBlank() }
+        val result = mutableListOf<String>()
+        var current = StringBuilder()
+        for (sentence in sentences) {
+            if (current.isNotEmpty() && current.length + sentence.length + 1 > limit) {
+                result += current.toString(); current = StringBuilder()
             }
-        }.start()
+            if (sentence.length <= limit) {
+                if (current.isNotEmpty()) current.append(' ')
+                current.append(sentence)
+            } else {
+                var offset = 0
+                while (offset < sentence.length) {
+                    val end = (offset + limit).coerceAtMost(sentence.length)
+                    result += sentence.substring(offset, end)
+                    offset = end
+                }
+            }
+        }
+        if (current.isNotEmpty()) result += current.toString()
+        return result
     }
 
-    private fun generateMyanmarNeuralVoice() {
-        if (latestRecap.isBlank()) {
-            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
-            return
+    private fun speakText() {
+        if (!applyVoice()) return
+        val chunks = splitText(editor.text.toString())
+        if (chunks.isEmpty()) { status.text = "ဖတ်ရန် စာသားထည့်ပါ။"; return }
+        engine?.stop()
+        chunks.forEachIndexed { index, chunk ->
+            val mode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            engine?.speak(chunk, mode, Bundle(), "speak-$index-${System.nanoTime()}")
         }
-        if (neuralVoiceInProgress) {
-            status.text = "မြန်မာ Neural Voice ဖန်တီးနေဆဲပါ။"
-            return
-        }
-        neuralVoiceInProgress = true
-        val textToSpeak = latestRecap
-        val output = File(cacheDir, "hyper_myanmar_neural_" + System.currentTimeMillis() + ".wav")
-        status.text = "မြန်မာ Neural Voice Model ကို ပြင်ဆင်နေပါသည်..."
-        Thread {
-            try {
-                MyanmarNeuralVoice.synthesize(this, textToSpeak, output) { message ->
-                    runOnUiThread { status.text = message }
-                }
-                runOnUiThread {
-                    latestMyanmarNeuralWav?.delete()
-                    latestMyanmarNeuralWav = output
-                    playMyanmarNeuralVoice(output)
-                }
-            } catch (e: Exception) {
-                output.delete()
-                runOnUiThread {
-                    status.text = "မြန်မာ Neural Voice မအောင်မြင်ပါ: " + (e.localizedMessage ?: "Model/Audio error")
-                }
-            } finally {
-                neuralVoiceInProgress = false
-            }
-        }.start()
+        status.text = "စာသား ${chunks.size} ပိုင်းကို အသံဖတ်နေပါသည်။"
     }
 
-    private fun playMyanmarNeuralVoice(file: File) {
-        try {
-            neuralPlayer?.release()
-            val player = MediaPlayer()
-            neuralPlayer = player
-            player.setDataSource(file.absolutePath)
-            player.setOnPreparedListener {
-                it.start()
-                status.text = "မြန်မာ Neural AI Voice ဖြင့် Recap ဖတ်နေပါသည်။"
-            }
-            player.setOnCompletionListener {
-                it.release()
-                if (neuralPlayer === it) neuralPlayer = null
-                status.text = "မြန်မာ Neural Voice ဖတ်ပြီးပါပြီ။ WAV သိမ်းနိုင်ပါသည်။"
-            }
-            player.setOnErrorListener { mp, _, _ ->
-                mp.release()
-                if (neuralPlayer === mp) neuralPlayer = null
-                status.text = "Neural Voice အသံဖွင့်မရပါ။ WAV သိမ်းပြီး အခြား Player ဖြင့် စမ်းပါ။"
-                true
-            }
-            player.prepareAsync()
-        } catch (e: Exception) {
-            neuralPlayer?.release()
-            neuralPlayer = null
-            status.text = "Neural Voice ဖွင့်မရပါ: " + (e.localizedMessage ?: "Player error")
-        }
-    }
-
-    private fun saveMyanmarNeuralWav() {
-        val source = latestMyanmarNeuralWav
-        if (source == null || !source.isFile) {
-            status.text = "အရင်ဆုံး မြန်မာ Neural Voice ဖန်တီးပါ။"
-            return
-        }
+    private fun beginExport() {
+        if (!applyVoice()) return
+        exportChunks = splitText(editor.text.toString())
+        if (exportChunks.isEmpty()) { status.text = "အသံထုတ်ရန် စာသားထည့်ပါ။"; return }
+        exportFiles.clear(); exportIndex = 0
+        exportButton.isEnabled = false
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "audio/wav"
-            putExtra(Intent.EXTRA_TITLE, "HyperRecap-Myanmar-Neural-Voice.wav")
+            addCategory(Intent.CATEGORY_OPENABLE); type = "audio/wav"
+            putExtra(Intent.EXTRA_TITLE, "VoiceStudio-Narration.wav")
         }
-        startActivityForResult(intent, REQUEST_SAVE_MYANMAR_NEURAL_WAV)
+        startActivityForResult(intent, REQUEST_EXPORT)
     }
 
-    private fun saveRecapAudio() {
-        if (latestRecap.isBlank()) {
-            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
-            return
-        }
-        if (tts == null || availableVoices.isEmpty() || tts?.voice?.locale?.language != "my") {
-            status.text = "Offline မြန်မာ Voice ကို ရွေးချယ်ပြီးမှ အသံဖိုင် သိမ်းနိုင်ပါသည်။"
-            return
-        }
-        val saveIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "audio/wav"
-            putExtra(Intent.EXTRA_TITLE, "HyperRecap.wav")
-        }
-        startActivityForResult(saveIntent, REQUEST_SAVE_AUDIO)
-    }
-
-    private fun synthesizeRecapAudio(destination: Uri) {
-        val engine = tts ?: return
-        try {
-            if (availableVoices.isEmpty() || engine.voice?.locale?.language != "my") {
-                throw IllegalStateException("Offline မြန်မာ TTS Voice ကို ရွေးချယ်ပါ။")
-            }
-            engine.setSpeechRate(0.5f + speechRate.progress / 100f)
-            engine.setPitch(0.5f + speechPitch.progress / 100f)
-            pendingAudioUri = destination
-            pendingAudioFile = File(cacheDir, "hyper_recap_${System.currentTimeMillis()}.wav")
-            pendingAudioChunks = splitNarrationIntoChunks(latestRecap, 2500)
-            pendingAudioChunkFiles = mutableListOf()
-            pendingAudioChunkIndex = 0
-            if (pendingAudioChunks.isEmpty()) throw IllegalStateException("Recap စာသား မရှိပါ။")
-            status.text = "အကန့်အသတ်မရှိ Local TTS — WAV အသံ ${pendingAudioChunks.size} ပိုင်း ဖန်တီးနေပါသည်..."
-            synthesizeNextRecapAudioChunk()
-        } catch (e: Exception) {
-            cleanupPendingAudioExport()
-            status.text = "အသံဖိုင်ဖန်တီးမရပါ: ${e.localizedMessage ?: "Error"}"
-        }
-    }
-
-    private fun synthesizeNextRecapAudioChunk() {
-        val engine = tts ?: throw IllegalStateException("TTS Engine မရရှိပါ။")
-        val index = pendingAudioChunkIndex
-        if (index !in pendingAudioChunks.indices) throw IllegalStateException("အသံအပိုင်း မရှိပါ။")
-        val part = File(cacheDir, "hyper_recap_part_${System.currentTimeMillis()}_${index}.wav")
-        part.delete()
-        pendingAudioChunkFiles += part
-        val result = engine.synthesizeToFile(
-            pendingAudioChunks[index], Bundle(), part, "hyper_recap_audio_chunk_${index}"
-        )
-        if (result != TextToSpeech.SUCCESS) {
-            part.delete()
-            pendingAudioChunkFiles.remove(part)
-            throw IllegalStateException("TTS က အသံအပိုင်း ${index + 1} ကို မဖန်တီးနိုင်ပါ။")
-        }
-    }
-
-    private fun finishRecapAudioExport() {
-        val destination = pendingAudioUri ?: return
-        val merged = pendingAudioFile ?: return
-        val chunkCount = pendingAudioChunks.size
-        Thread {
+    private fun exportNextChunk() {
+        if (exportIndex >= exportChunks.size) {
             try {
-                mergeNarrationWavChunks(pendingAudioChunkFiles, merged)
-                contentResolver.openOutputStream(destination)?.use { output ->
-                    merged.inputStream().use { input -> input.copyTo(output) }
-                } ?: throw IllegalStateException("Output stream unavailable")
-                runOnUiThread { status.text = "✓ Recap WAV အသံဖိုင် $chunkCount ပိုင်းကို ပေါင်းပြီး သိမ်းပြီးပါပြီ။" }
-            } catch (e: Exception) {
-                runOnUiThread { status.text = "အသံဖိုင် သိမ်းမရပါ: ${e.localizedMessage ?: "Error"}" }
-            } finally {
-                cleanupPendingAudioExport()
+                val merged = File(cacheDir, "voice-export-${System.currentTimeMillis()}.wav")
+                mergeWaveFiles(exportFiles, merged)
+                val destination = exportDestination ?: throw IllegalStateException("သိမ်းမည့်နေရာ မရွေးထားပါ။")
+                contentResolver.openOutputStream(destination)?.use { output -> merged.inputStream().use { it.copyTo(output) } }
+                    ?: throw IllegalStateException("Output file ဖွင့်မရပါ။")
+                merged.delete()
+                exportFiles.forEach { it.delete() }; exportFiles.clear()
+                exportButton.isEnabled = true
+                status.text = "WAV ဖိုင် အောင်မြင်စွာ သိမ်းပြီးပါပြီ။ ${exportChunks.size} ပိုင်း။"
+            } catch (e: Exception) { failExport(e.localizedMessage ?: "WAV ဖိုင်ပေါင်းစည်းမရပါ။") }
+            return
+        }
+        val chunk = exportChunks[exportIndex]
+        val file = File(cacheDir, "tts-${UUID.randomUUID()}.wav")
+        exportFiles += file
+        val id = "export-$exportIndex"
+        val result = engine?.synthesizeToFile(chunk, Bundle(), file, id) ?: TextToSpeech.ERROR
+        if (result != TextToSpeech.SUCCESS) { failExport("TTS က အသံဖိုင်ထုတ်လုပ်မှုကို လက်မခံပါ။"); return }
+        status.text = "WAV ထုတ်နေသည် — ${exportIndex + 1}/${exportChunks.size}"
+        exportIndex++
+    }
+
+    private fun mergeWaveFiles(files: List<File>, destination: File) {
+        if (files.isEmpty()) throw IllegalStateException("အသံအပိုင်း မရှိပါ။")
+        val payloads = files.map { file ->
+            val bytes = file.readBytes()
+            if (bytes.size < 44 || String(bytes, 0, 4) != "RIFF" || String(bytes, 8, 4) != "WAVE")
+                throw IllegalStateException("TTS Engine က standard WAV ဖိုင် မထုတ်ပေးပါ။")
+            var offset = 12
+            var dataOffset = -1
+            var dataSize = 0
+            while (offset + 8 <= bytes.size) {
+                val id = String(bytes, offset, 4)
+                val size = readIntLe(bytes, offset + 4)
+                if (id == "data") { dataOffset = offset + 8; dataSize = size.coerceAtMost(bytes.size - dataOffset); break }
+                offset += 8 + size + (size and 1)
             }
-        }.start()
-    }
-
-    private fun cleanupPendingAudioExport() {
-        pendingAudioChunkFiles.forEach { it.delete() }
-        pendingAudioChunkFiles.clear()
-        pendingAudioChunks = emptyList()
-        pendingAudioChunkIndex = 0
-        pendingAudioFile?.delete()
-        pendingAudioFile = null
-        pendingAudioUri = null
-    }
-
-    private fun speakRecap() {
-        if (latestRecap.isBlank()) {
-            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
-            return
+            if (dataOffset < 0) throw IllegalStateException("WAV data chunk မတွေ့ပါ။")
+            Triple(bytes.copyOfRange(0, 44), bytes.copyOfRange(dataOffset, dataOffset + dataSize), dataSize)
         }
-        val engine = tts
-        if (engine == null || availableVoices.isEmpty() || engine.voice?.locale?.language != "my") {
-            status.text = "Offline မြန်မာ Voice data မရရှိသေးပါ။"
-            return
-        }
-        engine.setSpeechRate(0.5f + speechRate.progress / 100f)
-        engine.setPitch(0.5f + speechPitch.progress / 100f)
-        pendingSpeechChunks = splitNarrationIntoChunks(latestRecap, 2500)
-        pendingSpeechChunkIndex = 0
-        if (pendingSpeechChunks.isEmpty()) {
-            status.text = "ဖတ်ရန် Recap စာသား မရှိပါ။"
-            return
-        }
-        status.text = "အကန့်အသတ်မရှိ Local TTS — ${pendingSpeechChunks.size} အပိုင်းဖြင့် ဖတ်နေပါသည်..."
-        speakNextRecapChunk()
-    }
-
-    private fun speakNextRecapChunk() {
-        val engine = tts ?: throw IllegalStateException("TTS Engine မရရှိပါ။")
-        val index = pendingSpeechChunkIndex
-        if (index !in pendingSpeechChunks.indices) return
-        val result = engine.speak(
-            pendingSpeechChunks[index], TextToSpeech.QUEUE_FLUSH, Bundle(),
-            "hyper_unlimited_speech_chunk_" + index
-        )
-        if (result != TextToSpeech.SUCCESS) {
-            pendingSpeechChunks = emptyList()
-            pendingSpeechChunkIndex = 0
-            runOnUiThread { status.text = "အသံအပိုင်း ${index + 1} ကို ဖတ်မရပါ။ ဖုန်း TTS Engine ကို စစ်ဆေးပါ။" }
+        val first = payloads.first().first
+        val total = payloads.sumOf { it.third }
+        if (total > Int.MAX_VALUE - 44) throw IllegalStateException("WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
+        DataOutputStream(BufferedOutputStream(FileOutputStream(destination))).use { out ->
+            out.write(first, 0, 4); writeIntLe(out, 36 + total); out.write(first, 8, 28)
+            writeIntLe(out, total)
+            payloads.forEach { out.write(it.second) }
         }
     }
 
-    private fun previewVoice() {
-        val engine = tts
-        if (engine == null || availableVoices.isEmpty()) {
-            status.text = "အသုံးပြုနိုင်သော Voice မရှိသေးပါ။"
-            return
+    private fun readIntLe(b: ByteArray, at: Int): Int =
+        (b[at].toInt() and 255) or ((b[at+1].toInt() and 255) shl 8) or
+            ((b[at+2].toInt() and 255) shl 16) or ((b[at+3].toInt() and 255) shl 24)
+
+    private fun writeIntLe(out: DataOutputStream, value: Int) {
+        out.writeByte(value and 255); out.writeByte((value ushr 8) and 255)
+        out.writeByte((value ushr 16) and 255); out.writeByte((value ushr 24) and 255)
+    }
+
+    private fun failExport(message: String) {
+        exportFiles.forEach { it.delete() }; exportFiles.clear()
+        exportButton.isEnabled = true
+        status.text = "WAV ထုတ်မရပါ: $message"
+    }
+
+    private fun chooseReferenceAudio() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE); type = "audio/*"
         }
-        engine.setSpeechRate(0.5f + speechRate.progress / 100f)
-        engine.setPitch(0.5f + speechPitch.progress / 100f)
-        engine.speak("မင်္ဂလာပါ။ Hyper Recap AI အသံစမ်းသပ်မှု ဖြစ်ပါတယ်။ ရွေးချယ်ထားတဲ့ အသံနဲ့ စာသားကို ဖတ်ပြပါမယ်။", TextToSpeech.QUEUE_FLUSH, null, "hyper_recap_preview")
-        status.text = "အသံစမ်းသပ်နေပါသည်။"
+        startActivityForResult(intent, REQUEST_REFERENCE)
+    }
+
+    @Deprecated("Use Activity Result APIs in a later cleanup")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK || data?.data == null) return
+        val uri = data.data!!
+        if (requestCode == REQUEST_REFERENCE) {
+            try {
+                val target = File(filesDir, "voice-reference-${System.currentTimeMillis()}.audio")
+                contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
+                    ?: throw IllegalStateException("အသံဖိုင်ဖတ်မရပါ။")
+                referenceSampleName = "သိမ်းပြီးပါပြီ (${target.length() / 1024} KB)"
+                status.text = "Reference အသံဖိုင်ကို Local Storage ထဲသိမ်းပြီးပါပြီ။ လက်ရှိတွင် Clone မလုပ်သေးပါ။"
+                // Refresh the small reference label by rebuilding only status; do not imply cloning.
+            } catch (e: Exception) { status.text = "Reference အသံသိမ်းမရပါ: ${e.localizedMessage}" }
+        } else if (requestCode == REQUEST_EXPORT) {
+            exportDestination = uri
+            exportNextChunk()
+        }
     }
 
     override fun onDestroy() {
-        tts?.stop()
-        tts?.shutdown()
-        tts = null
-        neuralPlayer?.release()
-        neuralPlayer = null
+        engine?.stop()
+        engine?.shutdown()
         super.onDestroy()
     }
 
-    private fun generateCloudAiRecap() {
-        val source = transcriptInput.text.toString().trim()
-        if (source.length < 80) {
-            status.text = "AI Recap အတွက် Transcript အနည်းဆုံး စာလုံး ၈၀ ခန့် လိုအပ်ပါသည်။ အရင်ဆုံး Video ကို Whisper ဖြင့် Transcribe လုပ်ပါ။"
-            return
-        }
-        status.text = "Cloud AI Generative Recap စတင်နေပါသည်။ Internet လိုအပ်ပြီး အသုံးပြုမှုအလိုက် Cloudflare AI quota ကန့်သတ်ချက်ရှိနိုင်သည်။"
-        Thread {
-            try {
-                val result = CloudAiClient.generateBurmeseRecap(this, source, latestVisualContext) { message ->
-                    runOnUiThread { status.text = message }
-                }
-                runOnUiThread {
-                    latestRecap = result
-                    latestSrt = SubtitleDraft.fromNarration(result)
-                    recapOutput.text = result
-                    status.text = "Cloud AI မြန်မာ Movie Recap ပြီးပါပြီ။ SRT timing သည် narration ခန့်မှန်းချိန်ဖြစ်သည်။"
-                }
-            } catch (e: Exception) {
-                runOnUiThread { status.text = "Cloud AI Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Server/Quota error"}" }
-            }
-        }.start()
+    companion object {
+        private const val REQUEST_EXPORT = 4101
+        private const val REQUEST_REFERENCE = 4102
     }
-
-    private fun translateTranscriptToMyanmar() {
-        val source = transcriptInput.text.toString().trim()
-        if (source.length < 20) {
-            status.text = "ဘာသာပြန်ရန် English Transcript စာသား အနည်းဆုံး စာလုံး ၂၀ လိုအပ်ပါသည်။"
-            return
-        }
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        status.text = "Offline English → Myanmar AI Translation စတင်နေပါသည်..."
-        Thread {
-            try {
-                val result = OfflineStoryAi.translateToMyanmar(this, source) { message ->
-                    runOnUiThread { status.text = message }
-                }
-                runOnUiThread {
-                    transcriptInput.setText(result)
-                    importedSrtCues = emptyList()
-                    importedSrtSource = ""
-                    status.text = "✓ Offline မြန်မာဘာသာပြန်ပြီးပါပြီ။ Internet/API Key မလိုပါ။"
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    status.text = "Offline ဘာသာပြန်မအောင်မြင်ပါ: ${e.localizedMessage ?: "Model/RAM error"}"
-                }
-            } finally {
-                runOnUiThread {
-                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                }
-            }
-        }.start()
-    }
-
-    private fun generateRecap() {
-        val source = transcriptInput.text.toString().trim()
-        if (source.length < 80) {
-            status.text = "Transcript စာသား အနည်းဆုံး စာလုံး ၈၀ ခန့် လိုအပ်ပါသည်။"
-            return
-        }
-        status.text = "ဇာတ်လမ်း Transcript ကို စိစစ်ပြီး Recap ဖန်တီးနေပါသည်..."
-        recapOutput.text = "AI Recap ပြင်ဆင်နေပါသည်။ ခဏစောင့်ပါ..."
-        // Keep the screen awake during first-time model download and long local inference.
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        Thread {
-            try {
-                val sourceCues = importedSrtCues
-                val highlights = if (sourceCues.isNotEmpty()) SrtTranscript.summarize(sourceCues, 12) else emptyList()
-                val localDraft = if (highlights.isNotEmpty()) {
-                    highlights.joinToString("\n\n") { it.text }
-                } else {
-                    OfflineRecap.summarize(source, 12)
-                }
-                if (localDraft.isBlank()) throw IllegalStateException("Local Recap အလွတ်ဖြစ်နေပါသည်။")
-
-                // Do not label an extractive transcript selection as an AI story recap.
-                // A successful AUTO RECAP must come from the on-device generative model.
-                val recapVisualContext = latestVisualContext.trim().take(2_200)
-                runOnUiThread {
-                    status.text = if (recapVisualContext.isNotBlank()) {
-                        "Offline Qwen AI — Transcript နှင့် ရုပ်ပုံအထောက်အထား ပေါင်းစပ်နေပါသည်..."
-                    } else {
-                        "Offline Qwen AI — Transcript မှ ဇာတ်လမ်းကို ပြန်လည်တည်ဆောက်နေပါသည်..."
-                    }
-                }
-                val timestampedTranscript = if (sourceCues.isNotEmpty()) {
-                    sourceCues.sortedBy { it.startMs }.joinToString("\n") {
-                        "[${formatDuration(it.startMs)}] ${it.text}"
-                    }
-                } else source
-                val result = try {
-                    OfflineStoryAi.summarize(
-                        this,
-                        timestampedTranscript,
-                        visualContext = recapVisualContext
-                    ) { message ->
-                        runOnUiThread { status.text = message }
-                    }
-                } catch (offlineAiError: Exception) {
-                    throw IllegalStateException(
-                        "Qwen Local AI Recap မအောင်မြင်ပါ။ Extractive စာသားကို AI Recap အဖြစ် မပြသပါ။ အကြောင်းရင်း: ${offlineAiError.localizedMessage ?: offlineAiError.javaClass.simpleName}",
-                        offlineAiError
-                    )
-                }
-                if (result.length < 80) {
-                    throw IllegalStateException("Qwen Local AI မှ ပြည့်စုံသော ဇာတ်လမ်း Recap မရရှိပါ။")
-                }
-                val mode = "On-device Generative Story AI (Offline)"
-                runOnUiThread {
-                    latestRecap = result
-                    latestHighlightCues = highlights
-                    latestVisualContext = recapVisualContext
-                    latestSrt = SubtitleDraft.fromNarration(result)
-                    recapOutput.text = result
-                    status.text = "✓ $mode ပြီးပါပြီ။"
-                    requestAutoNarratedMp4Destination()
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    status.text = "Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Processing error"}"
-                }
-            } finally {
-                runOnUiThread {
-                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                }
-            }
-        }.start()
-    }
-
-    private fun requestAutoNarratedMp4Destination() {
-        if (selectedVideoUri == null || latestRecap.isBlank()) return
-        if (selectedCommercialVoiceId.isNullOrBlank() &&
-            (tts == null || availableVoices.isEmpty() || tts?.voice?.locale?.language != "my")) {
-            status.text = "Offline မြန်မာ TTS အသံမတွေ့ပါ။ ဤအက်ပ်တွင် အခပေး Cloud Voice ကို အစားထိုးမသုံးပါ။ ဖုန်း Settings > Text-to-speech output မှ Burmese Offline voice data ထည့်သွင်းပြီး App ကို ပြန်ဖွင့်ပါ။"
-            return
-        }
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "video/mp4"
-            putExtra(Intent.EXTRA_TITLE, "HyperRecap-Auto-Narrated.mp4")
-        }
-        startActivityForResult(intent, REQUEST_AUTO_NARRATED_MP4)
-    }
-
-    private fun beginAutomaticNarrationExport(destination: Uri) {
-        val commercialVoiceId = selectedCommercialVoiceId
-        if (!commercialVoiceId.isNullOrBlank()) {
-            if (latestRecap.isBlank() || selectedVideoUri == null) {
-                status.text = "Recap သို့မဟုတ် Video မရှိပါ။"
-                return
-            }
-            val chunks = splitNarrationIntoChunks(latestRecap, 4_200)
-            if (chunks.isEmpty()) {
-                status.text = "ဖတ်ရန် Recap စာသား မရှိပါ။"
-                return
-            }
-            val audioFiles = chunks.indices.map { index ->
-                File(cacheDir, "hyper_commercial_voice_${System.currentTimeMillis()}_${index}.mp3")
-            }
-            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            status.text = "Commercial မြန်မာ Neural Voice — ${chunks.size} ပိုင်း ဖန်တီးနေပါသည်..."
-            Thread {
-                try {
-                    chunks.forEachIndexed { index, chunk ->
-                        CloudAiClient.synthesizeCommercialMyanmarVoice(
-                            this, chunk, commercialVoiceId, audioFiles[index]
-                        ) { message ->
-                            runOnUiThread { status.text = "အသံ ${index + 1}/${chunks.size} — $message" }
-                        }
-                    }
-                    runOnUiThread { exportNarratedMp4(destination, audioFiles) }
-                } catch (error: Exception) {
-                    audioFiles.forEach { it.delete() }
-                    runOnUiThread {
-                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        status.text = "Commercial Neural Voice မအောင်မြင်ပါ: ${error.localizedMessage ?: "TTS error"}"
-                    }
-                }
-            }.start()
-            return
-        }
-        val engine = tts ?: run { status.text = "TTS Engine မရရှိပါ။"; return }
-        if (availableVoices.isEmpty() || engine.voice?.locale?.language != "my") {
-            status.text = "မြန်မာဘာသာ TTS Voice မရွေးထားပါ။ အခြားဘာသာအသံဖြင့် မြန်မာစာ မဖတ်စေပါ။"
-            return
-        }
-        if (latestRecap.isBlank() || selectedVideoUri == null) {
-            status.text = "Recap သို့မဟုတ် Video မရှိပါ။"
-            return
-        }
-        val wav = File(cacheDir, "hyper_auto_voice_${System.currentTimeMillis()}.wav")
-        pendingNarratedMp4Destination = destination
-        pendingNarrationWav = wav
-        pendingNarrationChunks = splitNarrationIntoChunks(latestRecap)
-        pendingNarrationChunkFiles = mutableListOf()
-        pendingNarrationChunkIndex = 0
-        try {
-            if (pendingNarrationChunks.isEmpty()) throw IllegalStateException("Recap စာသားမရှိပါ။")
-            engine.setSpeechRate(0.95f)
-            engine.setPitch(1.0f)
-            status.text = "မြန်မာ Recap အသံ " + pendingNarrationChunks.size + " ပိုင်း ဖန်တီးနေပါသည်..."
-            synthesizeNextNarrationChunk()
-        } catch (e: Exception) {
-            wav.delete()
-            cleanupPendingNarration()
-            status.text = "အသံဖန်တီးမရပါ: " + (e.localizedMessage ?: "TTS error")
-        }
-    }
-
-    private fun cleanupPendingNarration(keepFinalWav: Boolean = false) {
-        pendingNarrationChunkFiles.forEach { it.delete() }
-        pendingNarrationChunkFiles.clear()
-        pendingNarrationChunks = emptyList()
-        pendingNarrationChunkIndex = 0
-        if (!keepFinalWav) pendingNarrationWav?.delete()
-        pendingNarrationWav = null
-        pendingNarratedMp4Destination = null
-    }
-
-    private fun splitNarrationIntoChunks(text: String, maxChars: Int = 3000): List<String> {
-        require(maxChars > 0) { "Chunk size must be positive" }
-        val clean = text.trim()
-        if (clean.isEmpty()) return emptyList()
-        // Keep Myanmar base characters, medials and combining marks together.
-        val iterator = java.text.BreakIterator.getCharacterInstance(Locale("my"))
-        iterator.setText(clean)
-        val clusters = ArrayList<String>()
-        var start = iterator.first()
-        var end = iterator.next()
-        while (end != java.text.BreakIterator.DONE) {
-            clusters += clean.substring(start, end)
-            start = end
-            end = iterator.next()
-        }
-        val chunks = ArrayList<String>()
-        var offset = 0
-        while (offset < clusters.size) {
-            var hardEnd = offset
-            var length = 0
-            while (hardEnd < clusters.size && length + clusters[hardEnd].length <= maxChars) {
-                length += clusters[hardEnd].length
-                hardEnd++
-            }
-            if (hardEnd == offset) hardEnd++
-            if (hardEnd < clusters.size) {
-                val preferredFloor = length * 2 / 3
-                var scannedLength = 0
-                var whitespaceCut = -1
-                for (index in offset until hardEnd) {
-                    scannedLength += clusters[index].length
-                    if (scannedLength >= preferredFloor && clusters[index].isBlank()) whitespaceCut = index + 1
-                }
-                if (whitespaceCut > offset) hardEnd = whitespaceCut
-            }
-            val chunk = clusters.subList(offset, hardEnd).joinToString("")
-            if (chunk.isNotBlank()) chunks += chunk
-            offset = hardEnd
-        }
-        return chunks
-    }
-
-    private fun synthesizeNextNarrationChunk() {
-        val engine = tts ?: throw IllegalStateException("TTS Engine မရရှိပါ။")
-        val index = pendingNarrationChunkIndex
-        if (index !in pendingNarrationChunks.indices) throw IllegalStateException("Narration အပိုင်း မရှိပါ။")
-        val partFile = File(cacheDir, "hyper_voice_part_" + System.currentTimeMillis() + "_" + index + ".wav")
-        partFile.delete()
-        pendingNarrationChunkFiles += partFile
-        val result = engine.synthesizeToFile(
-            pendingNarrationChunks[index], Bundle(), partFile, "hyper_auto_narration_chunk_" + index
-        )
-        if (result != TextToSpeech.SUCCESS) {
-            partFile.delete()
-            pendingNarrationChunkFiles.remove(partFile)
-            throw IllegalStateException("TTS က အသံအပိုင်း " + (index + 1) + " ကို မဖန်တီးနိုင်ပါ။")
-        }
-    }
-
-    private data class NarrationWavPart(
-        val dataOffset: Long,
-        val dataSize: Long,
-        val format: ByteArray,
-        val channels: Int,
-        val sampleRate: Int,
-        val bitsPerSample: Int
-    )
-
-    private fun readNarrationWavPart(file: File): NarrationWavPart {
-        java.io.RandomAccessFile(file, "r").use { input ->
-            if (input.length() < 12L) throw IllegalStateException("အသံအပိုင်း WAV မပြည့်စုံပါ။")
-            val riff = ByteArray(4).also(input::readFully)
-            val riffSize = readWavUInt32(input)
-            val wave = ByteArray(4).also(input::readFully)
-            if (String(riff, Charsets.US_ASCII) != "RIFF" ||
-                String(wave, Charsets.US_ASCII) != "WAVE" ||
-                riffSize < 4L || riffSize > input.length() - 8L) {
-                throw IllegalStateException("TTS WAV ဖိုင်ပုံစံ မမှန်ပါ။")
-            }
-            val riffEnd = 8L + riffSize
-            var format: ByteArray? = null
-            var channels = 0
-            var sampleRate = 0
-            var blockAlign = 0
-            var bits = 0
-            var dataOffset = -1L
-            var dataSize = -1L
-            while (input.filePointer + 8L <= riffEnd) {
-                val idBytes = ByteArray(4).also(input::readFully)
-                val id = String(idBytes, Charsets.US_ASCII)
-                val size = readWavUInt32(input)
-                val chunkStart = input.filePointer
-                val chunkEnd = chunkStart + size + (size and 1L)
-                if (chunkEnd < chunkStart || chunkEnd > riffEnd || chunkEnd > input.length()) {
-                    throw IllegalStateException("WAV chunk အရွယ်အစား မမှန်ပါ။")
-                }
-                if (id == "fmt ") {
-                    if (size < 16L || size > 65_536L) throw IllegalStateException("WAV fmt chunk မမှန်ပါ။")
-                    val fmt = ByteArray(16)
-                    input.readFully(fmt)
-                    val buffer = ByteBuffer.wrap(fmt).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                    val encoding = buffer.short.toInt() and 0xffff
-                    channels = buffer.short.toInt() and 0xffff
-                    sampleRate = buffer.int
-                    buffer.int // byte rate
-                    blockAlign = buffer.short.toInt() and 0xffff
-                    bits = buffer.short.toInt() and 0xffff
-                    if (encoding != 1) throw IllegalStateException("PCM WAV အသံသာ ပေါင်းစပ်နိုင်ပါသည်။")
-                    format = fmt
-                } else if (id == "data") {
-                    dataOffset = chunkStart
-                    dataSize = size
-                }
-                input.seek(chunkEnd)
-                if (format != null && dataOffset >= 0L) break
-            }
-            val fmt = format ?: throw IllegalStateException("WAV fmt chunk မတွေ့ပါ။")
-            if (dataOffset < 0L || dataSize <= 0L || dataSize > input.length() - dataOffset ||
-                channels !in 1..2 || sampleRate !in 8_000..192_000 || bits != 16 ||
-                blockAlign != channels * 2 || dataSize % blockAlign.toLong() != 0L) {
-                throw IllegalStateException("ပံ့ပိုးမထားသော သို့မဟုတ် မပြည့်စုံသော PCM WAV ဖြစ်ပါသည်။")
-            }
-            return NarrationWavPart(dataOffset, dataSize, fmt, channels, sampleRate, bits)
-        }
-    }
-
-    private fun readWavUInt32(input: java.io.RandomAccessFile): Long {
-        val b = ByteArray(4)
-        input.readFully(b)
-        return (b[0].toLong() and 0xffL) or
-            ((b[1].toLong() and 0xffL) shl 8) or
-            ((b[2].toLong() and 0xffL) shl 16) or
-            ((b[3].toLong() and 0xffL) shl 24)
-    }
-
-    private fun mergeNarrationWavChunks(parts: List<File>, destination: File) {
-        if (parts.isEmpty()) throw IllegalStateException("Narration အသံအပိုင်း မရှိပါ။")
-        val parsed = parts.map { part ->
-            if (!part.isFile) throw IllegalStateException("အသံအပိုင်း WAV မတွေ့ပါ။")
-            readNarrationWavPart(part)
-        }
-        val reference = parsed.first()
-        if (parsed.any { !it.format.contentEquals(reference.format) }) {
-            throw IllegalStateException("အသံအပိုင်းများ၏ WAV format မတူညီပါ။")
-        }
-        val totalData = parsed.sumOf { it.dataSize }
-        if (totalData <= 0L || totalData > Int.MAX_VALUE - 44L) {
-            throw IllegalStateException("Narration WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
-        }
-        // Write a canonical 44-byte PCM header, regardless of optional RIFF chunks
-        // (LIST/JUNK/fact) present in individual Android TTS output files.
-        val header = ByteArray(44)
-        fun putAscii(offset: Int, value: String) {
-            value.toByteArray(Charsets.US_ASCII).copyInto(header, offset)
-        }
-        putAscii(0, "RIFF")
-        ByteBuffer.wrap(header, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt((36L + totalData).toInt())
-        putAscii(8, "WAVE")
-        putAscii(12, "fmt ")
-        ByteBuffer.wrap(header, 16, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(16)
-        reference.format.copyInto(header, 20, 0, 16)
-        putAscii(36, "data")
-        ByteBuffer.wrap(header, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(totalData.toInt())
-        destination.outputStream().buffered().use { output ->
-            output.write(header)
-            val buffer = ByteArray(64 * 1024)
-            parsed.forEachIndexed { index, partInfo ->
-                java.io.RandomAccessFile(parts[index], "r").use { input ->
-                    input.seek(partInfo.dataOffset)
-                    var remaining = partInfo.dataSize
-                    while (remaining > 0L) {
-                        val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                        if (count <= 0) throw IllegalStateException("WAV audio data မပြည့်စုံပါ။")
-                        output.write(buffer, 0, count)
-                        remaining -= count.toLong()
-                    }
-                }
-            }
-        }
-    }
-
-    @OptIn(UnstableApi::class)
-    private fun exportNarratedMp4(destination: Uri, narrationWav: File) =
-        exportNarratedMp4(destination, listOf(narrationWav))
-
-    /** Export one or more narration tracks in order; commercial TTS is chunked to API limits. */
-    @OptIn(UnstableApi::class)
-    private fun exportNarratedMp4(destination: Uri, narrationFiles: List<File>) {
-        val source = selectedVideoUri
-        if (source == null || narrationFiles.isEmpty() ||
-            narrationFiles.any { !it.isFile || it.length() < 44L }) {
-            narrationFiles.forEach { it.delete() }
-            status.text = "Video သို့မဟုတ် Narration အသံဖိုင် မပြည့်စုံပါ။"
-            return
-        }
-        if (activeTransformer != null) {
-            narrationFiles.forEach { it.delete() }
-            status.text = "MP4 Export လုပ်ဆောင်နေဆဲပါ။"
-            return
-        }
-        fun totalNarrationDurationMs(): Long = narrationFiles.sumOf { audioFile ->
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(audioFile.absolutePath)
-                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            } finally {
-                retriever.release()
-            }
-        }
-        val output = File(cacheDir, "hyper_narrated_${System.currentTimeMillis()}.mp4")
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        try {
-            // Build a short montage from recap-selected source timestamps. If no reliable
-            // source timestamps exist, retain the original video rather than guessing.
-            val videoItems = mutableListOf<EditedMediaItem>()
-            val cues = latestHighlightCues
-            if (cues.isNotEmpty()) {
-                val retriever = MediaMetadataRetriever()
-                val sourceDurationMs = try {
-                    retriever.setDataSource(this, source)
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                } finally {
-                    retriever.release()
-                }
-                val narrationDurationMs = totalNarrationDurationMs()
-                if (sourceDurationMs <= 0L || narrationDurationMs <= 0L) {
-                    throw IllegalStateException("Video/Narration ကြာချိန်ကို ဖတ်မရပါ။")
-                }
-                // Match montage length to narration length. Reuse the selected story
-                // highlights when the narration is longer than the available cue count.
-                // Keep individual source clips within the source video's duration.
-                // Very short source videos need more repeated clips to cover a long narration.
-                val targetClipMs = minOf(10_000L, sourceDurationMs).coerceAtLeast(1L)
-                val clipCount = ((narrationDurationMs + targetClipMs - 1L) / targetClipMs)
-                    .coerceAtLeast(1L).also { required ->
-                        if (required > 600L) {
-                            throw IllegalStateException("Narration အလွန်ရှည်ပြီး Video Scene 600 ပိုင်းထက် ပိုလိုအပ်နေပါသည်။ Recap ကို အပိုင်းခွဲပြီး Export လုပ်ပါ။")
-                        }
-                    }.toInt()
-                val chosen = (0 until clipCount).map { index ->
-                    val cueIndex = if (clipCount <= cues.size) {
-                        (index.toLong() * cues.size / clipCount).toInt()
-                    } else {
-                        index % cues.size
-                    }
-                    cues[cueIndex]
-                }
-                val perClipMs = ((narrationDurationMs + clipCount - 1L) / clipCount)
-                    .coerceAtLeast(1_000L)
-                chosen.forEachIndexed { index, cue ->
-                    // The final clip must use only the remaining narration duration;
-                    // otherwise the video sequence can outlast the narration and leave
-                    // an unintended silent tail in the exported MP4.
-                    val remainingMs = narrationDurationMs - index.toLong() * perClipMs
-                    val clipLength = minOf(perClipMs, remainingMs).coerceAtLeast(1L)
-                        .coerceAtMost(sourceDurationMs)
-                    val center = ((cue.startMs + cue.endMs) / 2L)
-                        .coerceIn(0L, sourceDurationMs - 1L)
-                    val latestStart = (sourceDurationMs - clipLength).coerceAtLeast(0L)
-                    val start = (center - clipLength / 2L).coerceIn(0L, latestStart)
-                    val end = (start + clipLength).coerceAtMost(sourceDurationMs)
-                    if (end > start) {
-                        val clippedItem = MediaItem.Builder()
-                            .setUri(source)
-                            .setClippingConfiguration(
-                                MediaItem.ClippingConfiguration.Builder()
-                                    .setStartPositionMs(start)
-                                    .setEndPositionMs(end)
-                                    .build()
-                            )
-                            .build()
-                        videoItems += EditedMediaItem.Builder(clippedItem).setRemoveAudio(true).build()
-                    }
-                }
-            }
-            if (videoItems.isEmpty()) {
-                // If transcript-derived highlights are unavailable, do not export the
-                // entire movie with only a short recap narration. Create a compact,
-                // evenly distributed fallback montage sized to the narration instead.
-                val sourceRetriever = MediaMetadataRetriever()
-                val sourceDurationMs = try {
-                    sourceRetriever.setDataSource(this, source)
-                    sourceRetriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-                } finally {
-                    sourceRetriever.release()
-                }
-                val narrationDurationMs = totalNarrationDurationMs()
-                if (sourceDurationMs <= 0L || narrationDurationMs <= 0L) {
-                    throw IllegalStateException("Video/Narration ကြာချိန်ကို ဖတ်မရပါ။")
-                }
-                // Base the fallback clip count on the actual source duration.
-                // Otherwise a source shorter than 10 seconds can produce a montage
-                // that ends before a longer narration has finished.
-                val targetClipMs = minOf(10_000L, sourceDurationMs).coerceAtLeast(1L)
-                val clipCount = ((narrationDurationMs + targetClipMs - 1L) / targetClipMs)
-                    .coerceAtLeast(1L).also { required ->
-                        if (required > 600L) {
-                            throw IllegalStateException("Narration အလွန်ရှည်ပြီး Video Scene 600 ပိုင်းထက် ပိုလိုအပ်နေပါသည်။ Recap ကို အပိုင်းခွဲပြီး Export လုပ်ပါ။")
-                        }
-                    }.toInt()
-                val clipLengthMs = ((narrationDurationMs + clipCount - 1L) / clipCount)
-                    .coerceAtLeast(1L).coerceAtMost(sourceDurationMs)
-                for (index in 0 until clipCount) {
-                    val remainingMs = narrationDurationMs - index.toLong() * clipLengthMs
-                    val actualClipLengthMs = minOf(clipLengthMs, remainingMs)
-                        .coerceAtLeast(1L).coerceAtMost(sourceDurationMs)
-                    val fraction = (index + 0.5) / clipCount.toDouble()
-                    val center = (fraction * sourceDurationMs).toLong().coerceIn(0L, sourceDurationMs - 1L)
-                    val latestStart = (sourceDurationMs - actualClipLengthMs).coerceAtLeast(0L)
-                    val start = (center - actualClipLengthMs / 2L).coerceIn(0L, latestStart)
-                    val end = (start + actualClipLengthMs).coerceAtMost(sourceDurationMs)
-                    if (end > start) {
-                        val clippedItem = MediaItem.Builder()
-                            .setUri(source)
-                            .setClippingConfiguration(
-                                MediaItem.ClippingConfiguration.Builder()
-                                    .setStartPositionMs(start)
-                                    .setEndPositionMs(end)
-                                    .build()
-                            )
-                            .build()
-                        videoItems += EditedMediaItem.Builder(clippedItem).setRemoveAudio(true).build()
-                    }
-                }
-                if (videoItems.isEmpty()) {
-                    throw IllegalStateException("Video မှ Export လုပ်နိုင်သော Clip မရရှိပါ။")
-                }
-            }
-            val audioItems = narrationFiles.map { audioFile ->
-                EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(audioFile))).setRemoveVideo(true).build()
-            }
-            val videoSequence = EditedMediaItemSequence.Builder(videoItems).build()
-            val audioSequence = EditedMediaItemSequence.Builder(audioItems).build()
-            val composition = Composition.Builder(listOf(videoSequence, audioSequence)).build()
-            output.createNewFile()
-            val transformer = Transformer.Builder(this)
-                .addListener(object : Transformer.Listener {
-                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                        Thread {
-                            try {
-                                verifyNarratedMp4(output)
-                                contentResolver.openOutputStream(destination)?.use { target ->
-                                    output.inputStream().use { input -> input.copyTo(target) }
-                                } ?: throw IllegalStateException("MP4 သိမ်းမည့်နေရာ ဖွင့်မရပါ။")
-                                runOnUiThread { status.text = if (latestHighlightCues.isNotEmpty()) "✓ မြန်မာ Recap အသံနှင့် ရွေးချယ်ထားသော Scene များပါဝင်သည့် Highlight MP4 သိမ်းပြီးပါပြီ။" else "✓ မြန်မာ Recap အသံနှင့် Video ပေါင်းထားသော MP4 သိမ်းပြီးပါပြီ။" }
-                            } catch (e: Exception) {
-                                runOnUiThread { status.text = "MP4 သိမ်းမရပါ: ${e.localizedMessage ?: "Storage error"}" }
-                            } finally {
-                                output.delete()
-                                narrationFiles.forEach { it.delete() }
-                                activeTransformer = null
-                                runOnUiThread {
-                                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                                }
-                            }
-                        }.start()
-                    }
-                    override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
-                        output.delete()
-                        narrationFiles.forEach { it.delete() }
-                        activeTransformer = null
-                        runOnUiThread {
-                            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                            status.text = "Narrated MP4 Export မအောင်မြင်ပါ: ${exportException.localizedMessage ?: "Encoding error"}"
-                        }
-                    }
-                }).build()
-            activeTransformer = transformer
-            status.text = "မူရင်း Video နှင့် မြန်မာ Recap အသံကို MP4 တစ်ခုတည်းအဖြစ် ပေါင်းနေပါသည်..."
-            transformer.start(composition, output.absolutePath)
-        } catch (e: Exception) {
-            output.delete()
-            narrationFiles.forEach { it.delete() }
-            activeTransformer = null
-            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            status.text = "MP4 Export စတင်မရပါ: ${e.localizedMessage ?: "Export error"}"
-        }
-    }
-
-    private fun verifyNarratedMp4(file: File) {
-        if (!file.isFile || file.length() < 1_024L) {
-            throw IllegalStateException("Export လုပ်ထားသော MP4 ဖိုင် အလွတ်ဖြစ်နေပါသည်။")
-        }
-        val extractor = MediaExtractor()
-        try {
-            extractor.setDataSource(file.absolutePath)
-            var hasVideo = false
-            var hasAudio = false
-            var videoDurationUs = 0L
-            var audioDurationUs = 0L
-            for (index in 0 until extractor.trackCount) {
-                val format = extractor.getTrackFormat(index)
-                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
-                val duration = if (format.containsKey(MediaFormat.KEY_DURATION)) {
-                    format.getLong(MediaFormat.KEY_DURATION)
-                } else 0L
-                if (mime.startsWith("video/")) {
-                    hasVideo = true
-                    videoDurationUs = maxOf(videoDurationUs, duration)
-                } else if (mime.startsWith("audio/")) {
-                    hasAudio = true
-                    audioDurationUs = maxOf(audioDurationUs, duration)
-                }
-            }
-            if (!hasVideo || !hasAudio || videoDurationUs <= 0L || audioDurationUs <= 0L) {
-                throw IllegalStateException("MP4 ထဲတွင် Video Track နှင့် မြန်မာ Narration Audio Track နှစ်ခုလုံး မပါဝင်ပါ။")
-            }
-            // A valid container can still have a silent tail or narration cut off
-            // when the two Media3 sequences have different durations. Reject that
-            // export instead of reporting success for a visibly/audio-incomplete MP4.
-            val durationDifferenceUs = kotlin.math.abs(videoDurationUs - audioDurationUs)
-            if (durationDifferenceUs > 2_000_000L) {
-                throw IllegalStateException(
-                    "Video နှင့် မြန်မာအသံ ကြာချိန် မကိုက်ညီပါ။ Video ${videoDurationUs / 1_000_000L}s / Audio ${audioDurationUs / 1_000_000L}s"
-                )
-            }
-        } finally {
-            extractor.release()
-        }
-    }
-
-    private fun requestSubtitleMp4Destination() {
-        if (selectedVideoUri == null) {
-            status.text = "အရင်ဆုံး Video ရွေးပါ။"
-            return
-        }
-        if (latestSrt.isBlank()) {
-            status.text = "အရင်ဆုံး Whisper Transcription လုပ်ပါ သို့မဟုတ် SRT Recap Generate လုပ်ပါ။"
-            return
-        }
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "video/mp4"
-            putExtra(Intent.EXTRA_TITLE, "HyperRecap-Subtitled.mp4")
-        }
-        startActivityForResult(intent, REQUEST_SAVE_OVERLAY_MP4)
-    }
-
-    @OptIn(UnstableApi::class)
-    private fun startSubtitleMp4Export(destination: Uri) {
-        val source = selectedVideoUri ?: run {
-            status.text = "Video မရွေးရသေးပါ။"
-            return
-        }
-        val cues = SrtTranscript.parse(latestSrt)
-        if (cues.isEmpty()) {
-            status.text = "အသုံးပြုနိုင်သော SRT Subtitle မတွေ့ပါ။"
-            return
-        }
-        if (activeTransformer != null) {
-            status.text = "Subtitle MP4 Export လုပ်ဆောင်နေဆဲပါ။"
-            return
-        }
-        val output = File(cacheDir, "hyper_subtitled_" + System.currentTimeMillis() + ".mp4")
-        try {
-            var width = 1280
-            var height = 720
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(this, source)
-                width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: width
-                height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: height
-                val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
-                if (rotation == 90 || rotation == 270) {
-                    val temp = width
-                    width = height
-                    height = temp
-                }
-            } finally {
-                retriever.release()
-            }
-            val overlay = SubtitleBurnIn.createEffect(width.coerceIn(320, 3840), height.coerceIn(320, 3840), cues)
-            val edited = EditedMediaItem.Builder(MediaItem.fromUri(source))
-                .setEffects(Effects(emptyList(), listOf(overlay)))
-                .build()
-            val sequence = EditedMediaItemSequence.Builder(listOf(edited)).build()
-            val composition = Composition.Builder(sequence).build()
-            output.createNewFile()
-            val transformer = Transformer.Builder(this)
-                .addListener(object : Transformer.Listener {
-                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                        Thread {
-                            try {
-                                contentResolver.openOutputStream(destination)?.use { target ->
-                                    output.inputStream().use { input -> input.copyTo(target) }
-                                } ?: throw IllegalStateException("MP4 သိမ်းမည့်နေရာ ဖွင့်မရပါ။")
-                                runOnUiThread {
-                                    status.text = "မြန်မာ Subtitle ကို Video ထဲ Burn-in လုပ်ပြီး MP4 သိမ်းပြီးပါပြီ။"
-                                }
-                            } catch (e: Exception) {
-                                runOnUiThread { status.text = "MP4 သိမ်းမရပါ: " + (e.localizedMessage ?: "Error") }
-                            } finally {
-                                output.delete()
-                                activeTransformer = null
-                                pendingSubtitleDestination = null
-                            }
-                        }.start()
-                    }
-
-                    override fun onError(
-                        composition: Composition,
-                        exportResult: ExportResult,
-                        exportException: ExportException
-                    ) {
-                        output.delete()
-                        activeTransformer = null
-                        pendingSubtitleDestination = null
-                        runOnUiThread {
-                            status.text = "Subtitle MP4 Export မအောင်မြင်ပါ: " + (exportException.localizedMessage ?: "Encoding error")
-                        }
-                    }
-                })
-                .build()
-            activeTransformer = transformer
-            pendingSubtitleDestination = destination
-            status.text = "Subtitle ကို Video frame တစ်ခုချင်းစီထဲ ထည့်ပြီး MP4 encode လုပ်နေပါသည်။ Video ကြာလျှင် အချိန်ကြာနိုင်သည်..."
-            transformer.start(composition, output.absolutePath)
-        } catch (e: Exception) {
-            output.delete()
-            activeTransformer = null
-            status.text = "Subtitle MP4 စတင်မရပါ: " + (e.localizedMessage ?: "Export error")
-        }
-    }
-
-    private fun saveSubtitles() {
-        if (latestSrt.isBlank()) {
-            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
-            return
-        }
-        val saveIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/x-subrip"
-            putExtra(Intent.EXTRA_TITLE, "HyperRecap-Subtitles.srt")
-        }
-        startActivityForResult(saveIntent, REQUEST_SAVE_SRT)
-    }
-
-    private fun saveRecap() {
-        if (latestRecap.isBlank()) {
-            status.text = "အရင်ဆုံး Recap Generate လုပ်ပါ။"
-            return
-        }
-        val saveIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TITLE, "HyperRecap.txt")
-        }
-        startActivityForResult(saveIntent, REQUEST_SAVE)
-    }
-
-    private fun downloadDirectVideo(raw: String) {
-        val social = SocialLinkSupport.extract(raw)
-        if (social != null && social.platform != SocialLinkSupport.Platform.UNKNOWN) {
-            openSocialLink(raw)
-            return
-        }
-        val uri = try { Uri.parse(raw.trim()) } catch (_: Exception) { null }
-        if (uri == null || uri.scheme !in listOf("http", "https") || uri.host.isNullOrBlank()) {
-            status.text = "မှန်ကန်သော http/https link ထည့်ပါ"
-            return
-        }
-        val path = uri.path?.lowercase(Locale.ROOT).orEmpty()
-        val supported = listOf(".mp4", ".mkv", ".webm", ".mov", ".m4v").any { path.endsWith(it) }
-        if (!supported) {
-            status.text = "ဤ URL သည် တိုက်ရိုက် Video ဖိုင်မဟုတ်နိုင်ပါ။ ဖုန်းထဲသို့ Video ကို အရင်သိမ်းပြီး Video ရွေးရန်ကို နှိပ်ပါ။"
-            return
-        }
-        try {
-            val request = DownloadManager.Request(uri)
-                .setTitle("Hyper Recap AI — Video")
-                .setDescription("Downloading direct video file")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_MOVIES, "HyperRecap_${System.currentTimeMillis()}.${path.substringAfterLast('.')}")
-                .setAllowedOverMetered(true)
-                .setAllowedOverRoaming(false)
-            val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
-            manager.enqueue(request)
-            status.text = "Download စတင်ပါပြီ။ ပြီးသွားလျှင် ဖုန်းထဲက Video ရွေးရန်ကို နှိပ်ပါ။"
-        } catch (e: Exception) {
-            status.text = "Download မစနိုင်ပါ: ${e.localizedMessage ?: "Error"}"
-        }
-    }
-
-    /** Extracts/remuxes the existing audio stream; this is preparation, not speech recognition. */
-    /** Decode video audio incrementally to PCM WAV for a future local ASR engine. */
-    private fun decodeSelectedAudio() {
-        val sourceUri = selectedVideoUri
-        if (sourceUri == null) { status.text = "အရင်ဆုံး Video ရွေးပါ။"; return }
-        status.text = "Video အသံကို PCM WAV ပြောင်းနေပါသည်။ ဖိုင်ရှည်လျှင် အချိန်ကြာနိုင်သည်..."
-        Thread {
-            val output = File(cacheDir, "hyper_pcm_" + System.currentTimeMillis() + ".wav")
-            try {
-                AudioDecoder.decodeToWav(this, sourceUri, output) { message ->
-                    runOnUiThread { status.text = message }
-                }
-                pendingDecodedWav = output
-                runOnUiThread {
-                    val save = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "audio/wav"
-                        putExtra(Intent.EXTRA_TITLE, "HyperRecap-Audio-PCM.wav")
-                    }
-                    startActivityForResult(save, REQUEST_SAVE_DECODED_WAV)
-                    status.text = "PCM WAV ပြောင်းပြီးပါပြီ။ သိမ်းမည့်နေရာရွေးပါ။"
-                }
-            } catch (e: Exception) {
-                output.delete()
-                runOnUiThread { status.text = "PCM WAV ပြောင်းမရပါ: " + (e.localizedMessage ?: "Unsupported audio") }
-            }
-        }.start()
-    }
-
-    private fun transcribeSelectedVideo() {
-        val sourceUri = selectedVideoUri
-        if (sourceUri == null) {
-            status.text = "အရင်ဆုံး Video ရွေးပါ။"
-            recapOutput.text = "Video မရွေးရသေးပါ။ ဖုန်းထဲက Video ရွေးပြီး AUTO RECAP ကိုနှိပ်ပါ။"
-            return
-        }
-        if (transcriptionInProgress) {
-            status.text = "Whisper Speech-to-Text လုပ်ဆောင်နေဆဲပါ။"
-            return
-        }
-        transcriptionInProgress = true
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        status.text = "အဆင့် ၁/၃ — Video အသံကို ဖတ်နေပါသည်..."
-        recapOutput.text = "AUTO RECAP စတင်ပါပြီ။\n\nအဆင့် ၁/၃ — Video Audio ကို PCM ပြောင်းနေပါသည်။\nပြီးဆုံးသည်အထိ App ကို မပိတ်ပါနှင့်။"
-        Thread {
-            val wav = File(cacheDir, "hyper_whisper_${System.currentTimeMillis()}.wav")
-            var handedOffToRecap = false
-            try {
-                AudioDecoder.decodeToWav(this, sourceUri, wav) { message ->
-                    runOnUiThread {
-                        status.text = message
-                        recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\n\n$message"
-                    }
-                }
-                if (!wav.isFile || wav.length() <= 44L) {
-                    throw IllegalStateException("Video မှ အသံဒေတာ မထွက်လာပါ။ Video တွင် Audio Track ရှိမရှိ စစ်ဆေးပါ။")
-                }
-                val segments = WhisperTranscriber.transcribeVideoAudio(this, wav) { message ->
-                    runOnUiThread {
-                        status.text = message
-                        recapOutput.text = "အဆင့် ၂/၃ — အသံမှ စာသားထုတ်နေပါသည်။\n\n$message"
-                    }
-                }
-                if (segments.isEmpty()) {
-                    throw IllegalStateException("Whisper မှ စကားပြောစာသား မတွေ့ပါ။ Video အသံ/ဘာသာစကားကို စစ်ဆေးပါ။")
-                }
-                val cues = segments.map { SrtTranscript.Cue(it.startMs, it.endMs, it.text) }
-                val transcript = cues.joinToString("\n") { it.text }.trim()
-                if (transcript.length < 80) {
-                    throw IllegalStateException("အသံမှ စာသား ${transcript.length} လုံးသာ ရရှိသည်။ Recap အတွက် အနည်းဆုံး ၈၀ လုံးခန့် လိုအပ်သည်။")
-                }
-                // Analyze representative video frames locally before story synthesis.
-                // This adds visual evidence without uploading private movie frames.
-                val visualEvidence = try {
-                    LocalVideoVisualAnalyzer.analyze(this, sourceUri) { message ->
-                        runOnUiThread {
-                            status.text = message
-                            recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\n\n$message"
-                        }
-                    }
-                } catch (visualError: Exception) {
-                    throw IllegalStateException(
-                        "Offline ရုပ်ပုံစိစစ်မှု မအောင်မြင်ပါ။ ရုပ်ပုံအထောက်အထားမပါဘဲ Multimodal Recap အောင်မြင်သည်ဟု မပြပါ။ အကြောင်းရင်း: ${visualError.localizedMessage ?: visualError.javaClass.simpleName}",
-                        visualError
-                    )
-                }
-                if (visualEvidence.isBlank()) {
-                    throw IllegalStateException(
-                        "Video Frame များမှ အသုံးပြုနိုင်သော ရုပ်ပုံအထောက်အထား မရရှိပါ။ ရုပ်ပုံနားလည်မှု မအောင်မြင်သေးသောကြောင့် Recap ကို မဆက်လုပ်ပါ။"
-                    )
-                }
-                latestVisualContext = visualEvidence
-                handedOffToRecap = true
-                runOnUiThread {
-                    importedSrtCues = cues
-                    importedSrtSource = transcript
-                    transcriptInput.setText(transcript)
-                    latestSrt = SrtTranscript.toSrt(cues)
-                    recapOutput.text = "အဆင့် ၂/၃ ပြီးပါပြီ — စာသား ${transcript.length} လုံး ရရှိသည်။\n\nအဆင့် ၃/၃ — Local AI ဖြင့် ဇာတ်လမ်း Recap ဖန်တီးနေပါသည်..."
-                    status.text = "Whisper Transcription ပြီးပါပြီ။ Local Recap စတင်နေပါသည်..."
-                    generateRecap()
-                }
-            } catch (e: Exception) {
-                val message = e.localizedMessage ?: e.javaClass.simpleName
-                runOnUiThread {
-                    val friendly = "AUTO RECAP မအောင်မြင်ပါ။\n\nအကြောင်းရင်း: $message"
-                    status.text = friendly
-                    recapOutput.text = friendly
-                    android.widget.Toast.makeText(this, friendly, android.widget.Toast.LENGTH_LONG).show()
-                    android.app.AlertDialog.Builder(this)
-                        .setTitle("AUTO RECAP Error")
-                        .setMessage(message)
-                        .setPositiveButton("OK", null)
-                        .show()
-                }
-            } finally {
-                wav.delete()
-                transcriptionInProgress = false
-                if (!handedOffToRecap) {
-                    runOnUiThread {
-                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    }
-                }
-            }
-        }.start()
-    }
-
-    /**
-     * Samples up to 24 low-resolution frames across the full movie and sends
-     * them in pairs to the licensed Cloudflare Vision endpoint. Frames are
-     * encoded one batch at a time to keep peak memory low on 4GB devices.
-     */
-    private fun analyzeVideoFrames(source: Uri, onProgress: (String) -> Unit): String {
-        val retriever = MediaMetadataRetriever()
-        val notes = StringBuilder()
-        try {
-            retriever.setDataSource(this, source)
-            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                ?.toLongOrNull()?.coerceAtLeast(1L) ?: return ""
-            val sampleCount = if (durationMs < 180_000L) 6 else 24
-            val intervalMs = (durationMs / sampleCount).coerceAtLeast(30_000L)
-            val batch = mutableListOf<Pair<Long, String>>()
-            var sampled = 0
-            var analyzed = 0
-            var timeMs = intervalMs / 2
-            while (timeMs < durationMs && sampled < sampleCount) {
-                onProgress("AI ရုပ်ပုံနားလည်မှု — ${sampled + 1}/$sampleCount frame ပြင်ဆင်နေသည်...")
-                val original = retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                if (original != null) {
-                    try {
-                        val scale = minOf(256f / original.width, 256f / original.height, 1f)
-                        val width = (original.width * scale).toInt().coerceAtLeast(1)
-                        val height = (original.height * scale).toInt().coerceAtLeast(1)
-                        val small = Bitmap.createScaledBitmap(original, width, height, true)
-                        try {
-                            val bytes = ByteArrayOutputStream()
-                            small.compress(Bitmap.CompressFormat.JPEG, 42, bytes)
-                            val encoded = Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
-                            if (encoded.length <= 50_000) batch += timeMs to encoded
-                        } finally {
-                            if (small !== original) small.recycle()
-                        }
-                    } finally {
-                        original.recycle()
-                    }
-                }
-                sampled++
-                if (batch.size == 2) {
-                    onProgress("AI ရုပ်ပုံနားလည်မှု — ${analyzed + 1}/$sampleCount frame များကို စိစစ်နေသည်...")
-                    val description = CloudAiClient.analyzeVideoFrames(this, batch.map { it.second }, batch.map { it.first })
-                    batch.forEach { (at, _) -> notes.append("[${formatDuration(at)}] ") }
-                    notes.append(description).append("\n")
-                    analyzed += batch.size
-                    batch.clear()
-                }
-                timeMs += intervalMs
-            }
-            if (batch.isNotEmpty()) {
-                val description = CloudAiClient.analyzeVideoFrames(this, batch.map { it.second }, batch.map { it.first })
-                batch.forEach { (at, _) -> notes.append("[${formatDuration(at)}] ") }
-                notes.append(description).append("\n")
-                analyzed += batch.size
-            }
-            onProgress(if (analyzed > 0) "AI ရုပ်ပုံစိစစ်ပြီးပါပြီ — $analyzed frames" else "ဖတ်ရှုနိုင်သော Video frame မတွေ့ပါ။")
-            return notes.toString().take(12_000)
-        } finally {
-            try { retriever.release() } catch (_: Exception) {}
-        }
-    }
-
-    private fun extractSelectedAudio() {
-        val sourceUri = selectedVideoUri
-        if (sourceUri == null) { status.text = "အရင်ဆုံး Video ရွေးပါ။"; return }
-        status.text = "Video Audio Track ထုတ်ယူနေပါသည်..."
-        Thread {
-            var extractorToRelease: MediaExtractor? = null
-            var muxerToRelease: MediaMuxer? = null
-            val output = File(cacheDir, "hyper_audio_" + System.currentTimeMillis() + ".m4a")
-            try {
-                val ex = MediaExtractor(); extractorToRelease = ex
-                contentResolver.openFileDescriptor(sourceUri, "r")?.use { ex.setDataSource(it.fileDescriptor) }
-                    ?: throw IllegalStateException("Video ဖိုင်ဖွင့်မရပါ။")
-                var track = -1
-                var format: MediaFormat? = null
-                for (i in 0 until ex.trackCount) {
-                    val candidate = ex.getTrackFormat(i)
-                    if ((candidate.getString(MediaFormat.KEY_MIME) ?: "").startsWith("audio/")) { track = i; format = candidate; break }
-                }
-                if (track < 0 || format == null) throw IllegalStateException("Audio Track မတွေ့ပါ။")
-                ex.selectTrack(track)
-                val mx = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4); muxerToRelease = mx
-                val outTrack = mx.addTrack(format)
-                mx.start()
-                val capacity = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE).coerceAtLeast(262144) else 1048576
-                val buffer = ByteBuffer.allocateDirect(capacity)
-                val info = MediaCodec.BufferInfo()
-                while (true) {
-                    buffer.clear()
-                    val size = ex.readSampleData(buffer, 0)
-                    if (size < 0) break
-                    info.offset = 0; info.size = size; info.presentationTimeUs = ex.sampleTime; info.flags = ex.sampleFlags
-                    mx.writeSampleData(outTrack, buffer, info)
-                    if (!ex.advance()) break
-                }
-                mx.stop(); mx.release(); muxerToRelease = null
-                ex.release(); extractorToRelease = null
-                if (!output.exists() || output.length() == 0L) throw IllegalStateException("Audio data မရပါ။")
-                pendingExtractedAudio = output
-                runOnUiThread {
-                    val save = Intent(Intent.ACTION_CREATE_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "audio/mp4"; putExtra(Intent.EXTRA_TITLE, "HyperRecap-Audio.m4a") }
-                    startActivityForResult(save, REQUEST_SAVE_EXTRACTED_AUDIO)
-                    status.text = "Audio Track ထုတ်ယူပြီးပါပြီ။ သိမ်းမည့်နေရာရွေးပါ။"
-                }
-            } catch (e: Exception) {
-                output.delete()
-                runOnUiThread { status.text = "Audio ထုတ်ယူမရပါ: " + (e.localizedMessage ?: "Unsupported format") }
-            } finally { try { muxerToRelease?.stop() } catch (_: Exception) {}; try { muxerToRelease?.release() } catch (_: Exception) {}; try { extractorToRelease?.release() } catch (_: Exception) {} }
-        }.start()
-    }
-    private fun chooseVideo() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "video/*"
-        }
-        startActivityForResult(intent, REQUEST_VIDEO)
-    }
-
-    @Deprecated("Deprecated API retained for compatibility")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
-        if (requestCode == REQUEST_SAVE_AUDIO) {
-            synthesizeRecapAudio(uri)
-            return
-        }
-        if (requestCode == REQUEST_AUTO_NARRATED_MP4) {
-            beginAutomaticNarrationExport(uri)
-            return
-        }
-        if (requestCode == REQUEST_SAVE_MYANMAR_NEURAL_WAV) {
-            val source = latestMyanmarNeuralWav ?: return
-            Thread {
-                try {
-                    contentResolver.openOutputStream(uri)?.use { target ->
-                        source.inputStream().use { input -> input.copyTo(target) }
-                    } ?: throw IllegalStateException("WAV သိမ်းမည့်နေရာ ဖွင့်မရပါ။")
-                    runOnUiThread { status.text = "မြန်မာ Neural Voice WAV သိမ်းပြီးပါပြီ။" }
-                } catch (e: Exception) {
-                    runOnUiThread { status.text = "Neural WAV သိမ်းမရပါ: " + (e.localizedMessage ?: "Error") }
-                }
-            }.start()
-            return
-        }
-        if (requestCode == REQUEST_SAVE_OVERLAY_MP4) {
-            startSubtitleMp4Export(uri)
-            return
-        }
-        if (requestCode == REQUEST_TRANSCRIPT) {
-            Thread {
-                try {
-                    val imported = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                        ?: throw IllegalStateException("ဖိုင်ဖတ်မရပါ။")
-                    val cues = SrtTranscript.parse(imported)
-                    val cleaned = if (cues.isNotEmpty()) cues.joinToString("\n") { it.text } else imported
-                        .replace(Regex("(?m)^\\s*\\d+\\s*$"), "")
-                        .replace(Regex("(?m)^\\s*\\d{1,2}:\\d{2}:\\d{2}[,.]\\d{3}\\s*-->.*$"), "")
-                        .replace(Regex("(?m)^\\s*\\d{1,2}:\\d{2}[,.]\\d{3}\\s*-->.*$"), "")
-                        .replace(Regex("<[^>]+>"), "")
-                        .lines().filter { it.isNotBlank() }.joinToString("\n").trim()
-                    if (cleaned.length < 20) throw IllegalStateException("ဖိုင်ထဲတွင် အသုံးပြုနိုင်သော စာသား မလုံလောက်ပါ။")
-                    runOnUiThread {
-                        importedSrtCues = cues
-                        importedSrtSource = cleaned
-                        transcriptInput.setText(cleaned)
-                        status.text = if (cues.isNotEmpty())
-                            "SRT ဖိုင်ထည့်ပြီးပါပြီ။ ${cues.size} cues ၏ မူရင်း timestamp များကို ထိန်းသိမ်းထားသည်။"
-                        else "Transcript ဖိုင်ကို ထည့်ပြီးပါပြီ။ စာသား ${cleaned.length} လုံး ရှိသည်။"
-                    }
-                } catch (e: Exception) {
-                    runOnUiThread { status.text = "Transcript ဖိုင်ဖတ်မရပါ: ${e.localizedMessage ?: "Error"}" }
-                }
-            }.start()
-            return
-        }
-        if (requestCode == REQUEST_SAVE_DECODED_WAV) {
-            val source = pendingDecodedWav ?: return
-            Thread {
-                try {
-                    contentResolver.openOutputStream(uri)?.use { output -> source.inputStream().use { it.copyTo(output) } }
-                        ?: throw IllegalStateException("Output stream unavailable")
-                    runOnUiThread { status.text = "PCM WAV ဖိုင် သိမ်းပြီးပါပြီ။ ဒီဖိုင်ကို နောက်တစ်ဆင့် Local Speech-to-Text Engine မှာ အသုံးပြုနိုင်ပါမည်။" }
-                } catch (e: Exception) {
-                    runOnUiThread { status.text = "WAV ဖိုင် သိမ်းမရပါ: " + (e.localizedMessage ?: "Error") }
-                } finally { source.delete(); pendingDecodedWav = null }
-            }.start()
-            return
-        }
-        if (requestCode == REQUEST_SAVE_EXTRACTED_AUDIO) {
-            val source = pendingExtractedAudio ?: return
-            Thread {
-                try {
-                    contentResolver.openOutputStream(uri)?.use { output -> source.inputStream().use { it.copyTo(output) } }
-                        ?: throw IllegalStateException("Output stream unavailable")
-                    runOnUiThread { status.text = "Video Audio Track ကို M4A ဖိုင်အဖြစ် သိမ်းပြီးပါပြီ။" }
-                } catch (e: Exception) {
-                    runOnUiThread { status.text = "အသံဖိုင် သိမ်းမရပါ: " + (e.localizedMessage ?: "Error") }
-                } finally { source.delete(); pendingExtractedAudio = null }
-            }.start()
-            return
-        }
-        if (requestCode == REQUEST_SAVE_SRT) {
-            try {
-                contentResolver.openOutputStream(uri)?.use { it.write(latestSrt.toByteArray(Charsets.UTF_8)) }
-                    ?: throw IllegalStateException("Output stream unavailable")
-                status.text = "SRT Subtitle သိမ်းပြီးပါပြီ။ Timing သည် ခန့်မှန်းထားသော narration timing ဖြစ်ပြီး မူရင်းရုပ်ရှင်နှင့် အလိုအလျောက် sync မဖြစ်သေးပါ။"
-            } catch (e: Exception) {
-                status.text = "SRT သိမ်းမရပါ: " + (e.localizedMessage ?: "Error")
-            }
-            return
-        }
-        if (requestCode == REQUEST_SAVE) {
-            try {
-                contentResolver.openOutputStream(uri)?.use { it.write(latestRecap.toByteArray(Charsets.UTF_8)) }
-                status.text = "TXT ဖိုင်အဖြစ် သိမ်းပြီးပါပြီ။"
-            } catch (e: Exception) {
-                status.text = "ဖိုင်သိမ်းမရပါ: " + (e.localizedMessage ?: "Error")
-            }
-            return
-        }
-        if (requestCode != REQUEST_VIDEO) return
-        selectedVideoUri = uri
-        latestVisualContext = ""
-        latestRecap = ""
-        try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        catch (_: SecurityException) { }
-        val name = queryName(uri) ?: "ရွေးထားသော Video"
-        val retriever = MediaMetadataRetriever()
-        try {
-            retriever.setDataSource(this, uri)
-            val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            selectedInfo.text = "$name\nကြာချိန်: ${formatDuration(duration)}"
-            status.text = "Video ရွေးပြီးပါပြီ။ AUTO RECAP ကိုနှိပ်ပါ။"
-        } catch (e: Exception) {
-            selectedInfo.text = name
-            status.text = "Video metadata ဖတ်မရပါ: ${e.localizedMessage ?: "Unknown error"}"
-        } finally {
-            try { retriever.release() } catch (_: Exception) { }
-        }
-    }
-
-    private fun queryName(uri: Uri): String? {
-        var cursor: Cursor? = null
-        return try {
-            cursor = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
-            if (cursor?.moveToFirst() == true) cursor.getString(0) else null
-        } catch (_: Exception) { null } finally { cursor?.close() }
-    }
-
-    private fun formatDuration(ms: Long): String {
-        val t = ms / 1000
-        return if (t >= 3600) String.format(Locale.US, "%d:%02d:%02d", t / 3600, (t % 3600) / 60, t % 60)
-        else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
-    }
-
-    companion object { private const val REQUEST_TRANSCRIPT = 1007; private const val REQUEST_VIDEO = 1001; private const val REQUEST_SAVE = 1002; private const val REQUEST_SAVE_AUDIO = 1003; private const val REQUEST_SAVE_EXTRACTED_AUDIO = 1004; private const val REQUEST_SAVE_DECODED_WAV = 1005; private const val REQUEST_SAVE_SRT = 1006; private const val REQUEST_SAVE_OVERLAY_MP4 = 1008; private const val REQUEST_AUTO_NARRATED_MP4 = 1010; private const val REQUEST_SAVE_MYANMAR_NEURAL_WAV = 1009 }
 }
