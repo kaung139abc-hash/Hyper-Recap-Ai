@@ -9,6 +9,8 @@
 ## Implemented in the current branch
 - [x] Voice Studio app shell and Burmese-friendly text editor.
 - [x] Android system TTS fallback with installed-voice selection, speed and pitch controls.
+- [x] Local workspace persistence for draft text, selected voice, speed, pitch, and reference-sample status.
+- [x] Playback errors are reported separately from WAV export errors.
 - [x] Long-text chunked speech playback.
 - [x] WAV export through Android TTS and PCM chunk merger with format validation.
 - [x] Import and private local storage of a reference audio sample (storage only; no cloning inference).
