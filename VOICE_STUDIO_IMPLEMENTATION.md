@@ -1,30 +1,36 @@
-# Voice Studio AI — implementation checklist
+# Voice Studio AI — implementation status
 
-## Phase 1 — app shell
-- [ ] Replace recap screen and navigation with Studio / Voice Library / Voice Clone / Model Manager.
-- [ ] Remove recap, video, subtitle, transcript, and license-server flows from the user-facing app.
-- [ ] Rename launcher/app metadata and accessibility labels.
-- [ ] Keep model files out of the APK; use app-private storage and resumable downloads.
+## Product constraints
+- Android app, offline-first, no paid API, no cloud TTS, no API key.
+- Prioritize free/open-source components and disclose model/license restrictions.
+- Never describe an imported reference recording as voice cloning.
+- Only enable cloning for a speaker who owns the voice or has explicitly authorized its use.
 
-## Phase 2 — local TTS
-- [ ] Select a local TTS runtime and a model whose code AND weights license permit the intended distribution/use.
-- [ ] Verify Burmese grapheme/token handling, punctuation, numerals, and long text.
-- [ ] Implement bounded chunk synthesis, sentence-aware pauses, WAV writer, playback, and cancellation.
-- [ ] Run on-device performance, memory, thermal, and long-output tests.
+## Implemented in the current branch
+- [x] Voice Studio app shell and Burmese-friendly text editor.
+- [x] Android system TTS fallback with installed-voice selection, speed and pitch controls.
+- [x] Long-text chunked speech playback.
+- [x] WAV export through Android TTS and PCM chunk merger with format validation.
+- [x] Import and private local storage of a reference audio sample (storage only; no cloning inference).
+- [x] Custom adaptive launcher icon.
+- [x] GitHub Actions debug/release build and JVM test workflow.
 
-## Phase 3 — voice cloning
-- [ ] Select a genuinely open voice-cloning model/runtime suitable for Android ARM64.
-- [ ] Confirm model-weight license and attribution obligations before integrating.
-- [ ] Add user-consent flow for self-owned/authorized reference audio.
-- [ ] Implement reference-audio capture/import, preprocessing, speaker embedding/conditioning, and saved profiles.
-- [ ] Test similarity, intelligibility, Burmese pronunciation, and model limitations.
+## Not implemented / not verified
+- [ ] A redistributable, commercially usable Burmese neural TTS model.
+- [ ] Local Burmese phonemizer/tokenizer and model package management.
+- [ ] Actual voice cloning inference, speaker embedding, and saved clone profiles.
+- [ ] MP3 encoding/export and video muxing.
+- [ ] On-device installation and long-duration performance testing on the target phone.
 
-## Phase 4 — quality and release
-- [ ] Add MP3 export only with a compatible licensed encoder.
-- [ ] Add batch jobs, resumable queue, storage management, and crash recovery.
-- [ ] Build debug APK in GitHub Actions.
-- [ ] Install and test on the target Android phone before calling the APK usable.
-- [ ] Publish release only after the above checks pass.
+## Burmese model and licensing gate
+The previous audit found the known Myanmar MMS ONNX model marked CC BY-NC 4.0, which is not suitable for commercial redistribution without separate written permission. Other inspected candidates either have non-commercial restrictions, are online-only, lack a declared license, or are datasets rather than ready-to-run models. Therefore this branch does not bundle or silently download those weights, and does not claim neural Burmese speech or cloning is available.
 
-## Current truth
-No integrated local Burmese voice-cloning engine has been verified in this project yet. Android system TTS can serve as a fallback, but it is not equivalent to natural neural speech or voice cloning. The previous MMS Myanmar model in the old project is CC BY-NC 4.0 and is not suitable for commercial redistribution without separate permission.
+A compliant model can be integrated only after verifying the exact model weights, inference code, tokenizer/phonemizer, dataset and speaker rights, and redistribution terms. The app must then download a versioned package with checksums, run inference fully offline, and pass Burmese native-speaker quality and ARM64 device tests.
+
+## Release acceptance criteria
+- Airplane-mode synthesis after model installation.
+- No paid service, API key, or runtime cloud dependency.
+- Valid PCM WAV output for long narration, cancellation and recovery.
+- Model/license/attribution files included with each model package.
+- Voice cloning limited to self-owned or explicitly authorized voices.
+- Install and test the APK on the target Android phone before calling it production-ready.
