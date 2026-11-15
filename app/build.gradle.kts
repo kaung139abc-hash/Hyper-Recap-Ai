@@ -20,11 +20,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.kaung139abc.hyperrecap"
+        applicationId = "com.kaung139abc.voicestudio"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.8.0"
+        versionCode = 1
+        versionName = "1.0.0"
         // This app's on-device Whisper and llama.cpp runtimes target 64-bit Android.
         // Restrict native packaging to arm64 to avoid shipping three unused CPU builds.
         ndk {
