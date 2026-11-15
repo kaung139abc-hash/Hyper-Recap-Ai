@@ -2,7 +2,7 @@
 
 Android-first, offline-first Text-to-Speech and voice studio.
 
-> Status: migration in progress. This branch replaces the Movie Recap product direction. It is not yet a finished or tested APK.
+> Status: migration in progress. The app screen has been replaced with a first local TTS workspace and the Android package identity has been changed. A successful APK build and on-device test have not yet been confirmed.
 
 ## Product goals
 
@@ -23,7 +23,7 @@ Android-first, offline-first Text-to-Speech and voice studio.
 - “Unlimited” means no provider quota or per-use fee. Actual output remains limited by device RAM, compute speed, battery, heat, and storage.
 - Only integrate models whose code, weights, and voice-cloning terms permit the intended use. A permissive code license does not automatically make pretrained weights commercially usable.
 
-## Planned modules
+## Implemented in the current migration branch\n\n- Replaced the Movie Recap main screen with a Voice Studio screen.\n- Text editor, installed Android TTS voice picker, speed and pitch controls.\n- Chunked text playback to avoid the single-call TTS input limit.\n- Chunked WAV export using the installed Android TTS engine.\n- Import and private-storage saving of a user-provided reference audio sample. This is only reference-file storage, NOT voice cloning.\n- Explicit UI disclosure that a real voice-cloning engine and dedicated Burmese neural voice are not integrated yet.\n\n## Planned modules
 
 1. **Studio** — text editor, character count, chunked synthesis queue, progress, pause/resume, playback.
 2. **Voice Library** — installed local voices, saved voice profiles, sample playback, import/delete.
