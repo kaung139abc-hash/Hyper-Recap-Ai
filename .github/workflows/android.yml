@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "voice-studio" ]
   workflow_dispatch:
 
 permissions:
@@ -62,27 +62,27 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.kaung139abc.hyperrecap'"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.kaung139abc.voicestudio'"
       - name: Validate minified release build (unsigned fallback)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' || env.ANDROID_KEY_ALIAS == '' || env.ANDROID_KEY_PASSWORD == '' }}
         run: gradle --no-daemon assembleRelease
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Hyper-Recap-AI-debug
+          name: Voice-Studio-AI-debug
           path: app/build/outputs/apk/debug/app-debug.apk
       - name: Upload signed release APK artifact
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Hyper-Recap-AI-signed-release
+          name: Voice-Studio-AI-signed-release
           path: app/build/outputs/apk/release/app-release.apk
       - name: Publish latest installable APK
         if: success() && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest
-          name: Hyper Recap AI — Latest Android APK
+          name: Voice Studio AI — Latest Android APK
           target_commitish: main
           prerelease: true
           make_latest: true
