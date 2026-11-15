@@ -37,6 +37,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildUi()
+        restoreWorkspace()
         engine = TextToSpeech(this, this)
     }
 
@@ -116,7 +117,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             "${voice.locale.displayName} — ${voice.name}$network"
         }
         voicePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
-        status.text = "TTS အသင့်ဖြစ်ပါပြီ။ ဖုန်းတွင် ရရှိနိုင်သော Voice ${voices.size} ခု တွေ့သည်။"
+        val savedVoice = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("voice_index", -1)
+        if (savedVoice in voices.indices) voicePicker.setSelection(savedVoice)
+        status.text = if (voices.isEmpty()) {
+            "TTS Engine ရှိသော်လည်း အသုံးပြုနိုင်သော Voice မတွေ့ပါ။ ဖုန်း Settings မှ Voice Data ထည့်ပါ။"
+        } else {
+            "TTS အသင့်ဖြစ်ပါပြီ။ ဖုန်းတွင် ရရှိနိုင်သော Voice ${voices.size} ခု တွေ့သည်။"
+        }
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) { }
             override fun onDone(utteranceId: String?) {
@@ -124,10 +131,16 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
             @Deprecated("Deprecated by Android")
             override fun onError(utteranceId: String?) {
-                runOnUiThread { failExport("TTS အသံထုတ်ရာတွင် Error ဖြစ်နေပါသည်။") }
+                runOnUiThread {
+                    if (utteranceId?.startsWith("export-") == true) failExport("TTS အသံထုတ်ရာတွင် Error ဖြစ်နေပါသည်။")
+                    else status.text = "အသံဖတ်ရာတွင် TTS Error ဖြစ်နေပါသည်။ Voice Engine ကို စစ်ဆေးပါ။"
+                }
             }
             override fun onError(utteranceId: String?, errorCode: Int) {
-                runOnUiThread { failExport("TTS Error Code: $errorCode") }
+                runOnUiThread {
+                    if (utteranceId?.startsWith("export-") == true) failExport("TTS Error Code: $errorCode")
+                    else status.text = "အသံဖတ်ရာတွင် TTS Error Code: $errorCode"
+                }
             }
         })
     }
@@ -286,6 +299,30 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         status.text = "WAV ထုတ်မရပါ: $message"
     }
 
+    private fun restoreWorkspace() {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        editor.setText(prefs.getString("draft_text", "") ?: "")
+        rate.progress = prefs.getInt("speech_rate", 50).coerceIn(0, 150)
+        pitch.progress = prefs.getInt("speech_pitch", 50).coerceIn(0, 150)
+        referenceSampleName = prefs.getString("reference_label", "မရွေးရသေးပါ") ?: "မရွေးရသေးပါ"
+        referenceLabel.text = "Reference အသံဖိုင်: $referenceSampleName"
+    }
+
+    private fun saveWorkspace() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putString("draft_text", editor.text.toString())
+            .putInt("speech_rate", rate.progress)
+            .putInt("speech_pitch", pitch.progress)
+            .putInt("voice_index", voicePicker.selectedItemPosition)
+            .putString("reference_label", referenceSampleName)
+            .apply()
+    }
+
+    override fun onPause() {
+        saveWorkspace()
+        super.onPause()
+    }
+
     private fun chooseReferenceAudio() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE); type = "audio/*"
@@ -330,5 +367,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     companion object {
         private const val REQUEST_EXPORT = 4101
         private const val REQUEST_REFERENCE = 4102
+        private const val PREFS = "voice_studio_workspace"
     }
 }
