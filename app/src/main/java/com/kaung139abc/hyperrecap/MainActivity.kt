@@ -229,29 +229,45 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun mergeWaveFiles(files: List<File>, destination: File) {
         if (files.isEmpty()) throw IllegalStateException("အသံအပိုင်း မရှိပါ။")
-        val payloads = files.map { file ->
+        data class WavePart(val format: ByteArray, val payload: ByteArray)
+        val parts = files.map { file ->
             val bytes = file.readBytes()
             if (bytes.size < 44 || String(bytes, 0, 4) != "RIFF" || String(bytes, 8, 4) != "WAVE")
                 throw IllegalStateException("TTS Engine က standard WAV ဖိုင် မထုတ်ပေးပါ။")
             var offset = 12
-            var dataOffset = -1
-            var dataSize = 0
+            var format: ByteArray? = null
+            var payload: ByteArray? = null
             while (offset + 8 <= bytes.size) {
                 val id = String(bytes, offset, 4)
                 val size = readIntLe(bytes, offset + 4)
-                if (id == "data") { dataOffset = offset + 8; dataSize = size.coerceAtMost(bytes.size - dataOffset); break }
+                if (size < 0 || offset + 8L + size > bytes.size)
+                    throw IllegalStateException("WAV chunk ပျက်နေပါသည်။")
+                when (id) {
+                    "fmt " -> {
+                        if (size < 16) throw IllegalStateException("WAV format header မပြည့်စုံပါ။")
+                        format = bytes.copyOfRange(offset + 8, offset + 24)
+                    }
+                    "data" -> payload = bytes.copyOfRange(offset + 8, offset + 8 + size)
+                }
                 offset += 8 + size + (size and 1)
             }
-            if (dataOffset < 0) throw IllegalStateException("WAV data chunk မတွေ့ပါ။")
-            Triple(bytes.copyOfRange(0, 44), bytes.copyOfRange(dataOffset, dataOffset + dataSize), dataSize)
+            val fmt = format ?: throw IllegalStateException("WAV format chunk မတွေ့ပါ။")
+            val data = payload ?: throw IllegalStateException("WAV data chunk မတွေ့ပါ။")
+            if (readIntLe(fmt, 0) != 1)
+                throw IllegalStateException("လက်ရှိ WAV ပေါင်းစည်းမှုသည် PCM အသံဖိုင်ကိုသာ ထောက်ပံ့သည်။")
+            WavePart(fmt, data)
         }
-        val first = payloads.first().first
-        val total = payloads.sumOf { it.third }
-        if (total > Int.MAX_VALUE - 44) throw IllegalStateException("WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
+        val firstFormat = parts.first().format
+        if (parts.any { !it.format.contentEquals(firstFormat) })
+            throw IllegalStateException("အသံအပိုင်းများ၏ sample rate/channel format မတူညီပါ။")
+        val total = parts.sumOf { it.payload.size.toLong() }
+        if (total > Int.MAX_VALUE - 36) throw IllegalStateException("WAV ဖိုင် အလွန်ကြီးနေပါသည်။")
         DataOutputStream(BufferedOutputStream(FileOutputStream(destination))).use { out ->
-            out.write(first, 0, 4); writeIntLe(out, 36 + total); out.write(first, 8, 28)
-            writeIntLe(out, total)
-            payloads.forEach { out.write(it.second) }
+            out.writeBytes("RIFF"); writeIntLe(out, 36 + total.toInt())
+            out.writeBytes("WAVE"); out.writeBytes("fmt "); writeIntLe(out, 16)
+            out.write(firstFormat)
+            out.writeBytes("data"); writeIntLe(out, total.toInt())
+            parts.forEach { out.write(it.payload) }
         }
     }
 
