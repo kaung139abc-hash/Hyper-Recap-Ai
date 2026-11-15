@@ -26,6 +26,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var rate: SeekBar
     private lateinit var pitch: SeekBar
     private lateinit var status: TextView
+    private lateinit var referenceLabel: TextView
     private lateinit var exportButton: Button
     private var exportChunks: List<String> = emptyList()
     private var exportFiles = mutableListOf<File>()
@@ -84,7 +85,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         exportButton = button("WAV အသံဖိုင် ထုတ်ရန်") { beginExport() }
         content.addView(exportButton)
         content.addView(title("Voice Clone", 18f, 0xFF9FE9E0.toInt()))
-        content.addView(title("Reference အသံဖိုင်: $referenceSampleName", 12f, muted))
+        referenceLabel = title("Reference အသံဖိုင်: $referenceSampleName", 12f, muted)
+        content.addView(referenceLabel)
         content.addView(button("ကိုယ်ပိုင် / ခွင့်ပြုချက်ရှိသော အသံဖိုင် ရွေးရန်") { chooseReferenceAudio() })
         content.addView(title("မှတ်ချက် — အသံဖိုင်ကို Reference အဖြစ်သာ လက်ရှိသိမ်းထားသည်။ တကယ့် Voice Clone Engine မပေါင်းစည်းရသေးပါ။", 12f, 0xFFFFD28A.toInt()))
         content.addView(title("Model Manager", 18f, 0xFF9FE9E0.toInt()))
@@ -189,7 +191,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         if (!applyVoice()) return
         exportChunks = splitText(editor.text.toString())
         if (exportChunks.isEmpty()) { status.text = "အသံထုတ်ရန် စာသားထည့်ပါ။"; return }
-        exportFiles.clear(); exportIndex = 0
+        exportFiles.forEach { it.delete() }; exportFiles.clear()
+        exportDestination = null
+        exportIndex = 0
         exportButton.isEnabled = false
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE); type = "audio/wav"
@@ -276,7 +280,14 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     @Deprecated("Use Activity Result APIs in a later cleanup")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) return
+        if (resultCode != RESULT_OK || data?.data == null) {
+            if (requestCode == REQUEST_EXPORT) {
+                exportButton.isEnabled = true
+                exportFiles.forEach { it.delete() }; exportFiles.clear()
+                status.text = "WAV သိမ်းဆည်းမှုကို ပယ်ဖျက်လိုက်ပါပြီ။"
+            }
+            return
+        }
         val uri = data.data!!
         if (requestCode == REQUEST_REFERENCE) {
             try {
@@ -284,8 +295,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 contentResolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } }
                     ?: throw IllegalStateException("အသံဖိုင်ဖတ်မရပါ။")
                 referenceSampleName = "သိမ်းပြီးပါပြီ (${target.length() / 1024} KB)"
+                referenceLabel.text = "Reference အသံဖိုင်: $referenceSampleName"
                 status.text = "Reference အသံဖိုင်ကို Local Storage ထဲသိမ်းပြီးပါပြီ။ လက်ရှိတွင် Clone မလုပ်သေးပါ။"
-                // Refresh the small reference label by rebuilding only status; do not imply cloning.
             } catch (e: Exception) { status.text = "Reference အသံသိမ်းမရပါ: ${e.localizedMessage}" }
         } else if (requestCode == REQUEST_EXPORT) {
             exportDestination = uri
@@ -296,6 +307,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         engine?.stop()
         engine?.shutdown()
+        exportFiles.forEach { it.delete() }
         super.onDestroy()
     }
 
