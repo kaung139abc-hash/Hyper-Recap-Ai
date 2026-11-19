@@ -50,3 +50,21 @@ The app must not infer commercial rights from a model being downloadable or labe
 - BDDC is a candidate corpus only; exact dataset-card/audio provenance checks remain pending.
 - No new multi-speaker Burmese model weights have been trained, converted, or device-tested yet.
 - Redmi 13R has 4 GB RAM; benchmark one voice/model at a time before considering simultaneous model loading.
+
+## Voice-pack release gate
+
+Before packaging a trained model, create a JSON manifest using the schema documented
+in `tools/tts/validate_voice_pack.py`. Run:
+
+```bash
+python tools/tts/validate_voice_pack.py path/to/voice-pack/manifest.json \
+  --root path/to/voice-pack --allow-license "EXACT-REVIEWED-LICENSE-ID"
+```
+
+The allow-list is deliberately supplied by the release operator after a separate
+rights review; the script does not decide whether a license or dataset is legally
+suitable. It verifies required metadata, Burmese language tag, supported sample
+rate, speaker ID, asset containment, and SHA-256 integrity. It does not verify
+speaker consent, dataset provenance, commercial rights, model quality, or runtime
+compatibility. Never add a license to the allow-list merely to make validation pass.
+
