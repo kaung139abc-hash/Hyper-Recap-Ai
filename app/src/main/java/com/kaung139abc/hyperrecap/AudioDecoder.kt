@@ -81,6 +81,9 @@ object AudioDecoder {
             val info = MediaCodec.BufferInfo()
 
             while (!outputDone) {
+                if (Thread.currentThread().isInterrupted) {
+                    throw InterruptedException("Audio Decode ကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
+                }
                 if (!inputDone) {
                     val inputIndex = decoder.dequeueInputBuffer(10_000)
                     if (inputIndex >= 0) {
