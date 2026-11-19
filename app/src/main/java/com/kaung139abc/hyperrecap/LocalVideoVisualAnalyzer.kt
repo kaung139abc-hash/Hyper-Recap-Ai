@@ -41,7 +41,15 @@ object LocalVideoVisualAnalyzer {
                 ?.coerceAtLeast(1L)
                 ?: throw IllegalStateException("Video ကြာချိန်ကို ဖတ်မရပါ။")
 
-            val count = if (durationMs < 180_000L) 6 else MAX_FRAMES
+            // Keep first-run visual analysis light on 4 GB RAM phones. Short
+            // clips (including the initial 5–10 minute test target) use fewer
+            // sampled frames; longer films retain wider coverage.
+            val count = when {
+                durationMs < 180_000L -> 6
+                durationMs <= 600_000L -> 10
+                durationMs <= 1_800_000L -> 16
+                else -> MAX_FRAMES
+            }
             val intervalMs = (durationMs / count).coerceAtLeast(1L)
             var analyzed = 0
 
