@@ -74,6 +74,7 @@ class MainActivity : Activity() {
     private var pendingDecodedWav: File? = null
     @Volatile private var transcriptionInProgress = false
     @Volatile private var activeTranscriptionThread: Thread? = null
+    @Volatile private var activeRecapThread: Thread? = null
     private var pendingSubtitleDestination: Uri? = null
     private var pendingNarratedMp4Destination: Uri? = null
     private var pendingNarrationWav: File? = null
@@ -1078,6 +1079,8 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         activeTranscriptionThread?.interrupt()
         activeTranscriptionThread = null
+        activeRecapThread?.interrupt()
+        activeRecapThread = null
         // Release large temporary media files if the activity is closed before
         // the user completes an export or document-picker operation.
         pendingDecodedWav?.delete()
@@ -1157,7 +1160,7 @@ class MainActivity : Activity() {
         recapOutput.text = "AI Recap ပြင်ဆင်နေပါသည်။ ခဏစောင့်ပါ..."
         // Keep the screen awake during first-time model download and long local inference.
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        Thread {
+        val worker = Thread {
             try {
                 val sourceCues = importedSrtCues
                 val highlights = if (sourceCues.isNotEmpty()) SrtTranscript.summarize(sourceCues, 12) else emptyList()
@@ -1211,15 +1214,20 @@ class MainActivity : Activity() {
                     requestAutoNarratedMp4Destination()
                 }
             } catch (e: Exception) {
+                if (e is InterruptedException || Thread.currentThread().isInterrupted) return@Thread
                 runOnUiThread {
                     status.text = "Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Processing error"}"
                 }
             } finally {
+                if (activeRecapThread === Thread.currentThread()) activeRecapThread = null
                 runOnUiThread {
                     window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
-        }.start()
+        }
+        activeRecapThread?.interrupt()
+        activeRecapThread = worker
+        worker.start()
     }
 
     private fun requestAutoNarratedMp4Destination() {
