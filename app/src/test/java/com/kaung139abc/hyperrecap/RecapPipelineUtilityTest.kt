@@ -151,3 +151,35 @@ class AudioPcmConversionTest {
             (bytes[offset + 1].toInt() shl 8)).toShort().toInt()
     }
 }
+
+
+class MyanmarTextChunkerTest {
+    @Test
+    fun keepsMyanmarTextUnchangedAcrossChunkBoundaries() {
+        val source = "မြန်မာစာဖြင့် ဇာတ်လမ်းအကျဉ်းချုပ်ကို အသံထုတ်ပေးပါ။ မင်္ဂလာပါ။"
+        val chunks = MyanmarTextChunker.splitAtCharacterBoundaries(source, 7)
+
+        assertTrue(chunks.size > 1)
+        assertEquals(source, chunks.joinToString(""))
+    }
+
+    @Test
+    fun keepsCombiningSequencesTogetherWhenChunking() {
+        val cluster = "င်္ဂ"
+        val source = "က".repeat(5) + cluster + "ခ".repeat(5)
+        val chunks = MyanmarTextChunker.splitAtCharacterBoundaries(source, 5)
+
+        assertEquals(source, chunks.joinToString(""))
+        assertTrue(chunks.none { it.startsWith("္") || it.startsWith("်") })
+    }
+
+    @Test
+    fun emptyInputProducesNoChunks() {
+        assertTrue(MyanmarTextChunker.splitAtCharacterBoundaries("", 10).isEmpty())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsNonPositiveChunkLimit() {
+        MyanmarTextChunker.splitAtCharacterBoundaries("မြန်မာ", 0)
+    }
+}
