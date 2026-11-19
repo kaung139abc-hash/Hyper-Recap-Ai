@@ -639,12 +639,12 @@ class MainActivity : Activity() {
         if (tts != null && ::voicePicker.isInitialized) {
             try {
                 val voices = tts?.voices ?: emptySet()
-                val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
+                // Do not blacklist voices by provider/name: Burmese voice packs vary by
+                // Android TTS engine and device. Expose every installed offline "my" voice.
+                val previousVoiceName = tts?.voice?.name
                 availableVoices = voices.filter { voice ->
-                    val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
-                    voice.locale.language == "my" && !voice.isNetworkConnectionRequired && excluded.none { identity.contains(it) }
+                    voice.locale.language == "my" && !voice.isNetworkConnectionRequired
                 }.sortedWith(compareBy<Voice>(
-                    { if (it.isNetworkConnectionRequired) 1 else 0 },
                     { -it.quality }, { it.locale.displayName }, { it.name }
                 ))
                 val labels = availableVoices.map { voice ->
@@ -656,9 +656,12 @@ class MainActivity : Activity() {
                     if (labels.isEmpty()) listOf("အသုံးပြုနိုင်သော အသံမရှိပါ") else labels
                 )
                 if (labels.isNotEmpty()) {
-                    voicePicker.setSelection(0)
-                    tts?.voice = availableVoices[0]
-                    voiceInfo.text = "Offline မြန်မာအသံ ${labels.size} မျိုး ရရှိသည်။ Network voice များကို ဖယ်ထားသည်။"
+                    val selectedIndex = availableVoices.indexOfFirst { it.name == previousVoiceName }.let {
+                        if (it >= 0) it else 0
+                    }
+                    voicePicker.setSelection(selectedIndex)
+                    tts?.voice = availableVoices[selectedIndex]
+                    voiceInfo.text = "ဖုန်းတွင် ထည့်သွင်းထားသော Offline မြန်မာအသံ ${labels.size} မျိုး ရရှိသည်။ အသံအရေအတွက်သည် TTS Engine ပေါ်မူတည်သည်။"
                 } else {
                     voiceInfo.text = "TTS အသံမတွေ့ပါ။ Android Text-to-speech Settings မှ Voice data ထည့်ပါ။"
                 }
