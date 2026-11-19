@@ -246,7 +246,7 @@ object AudioDecoder {
                 4 -> {
                     val value = input.getFloat()
                     val finite = if (value.isFinite()) value.coerceIn(-1f, 1f) else 0f
-                    (finite * 32767f).toInt().toShort()
+                    if (finite <= -1f) Short.MIN_VALUE else (finite * 32767f).toInt().toShort()
                 }
                 21 -> {
                     var value = (input.get().toInt() and 0xff) or
