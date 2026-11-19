@@ -43,6 +43,12 @@ jobs:
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar \
             -o app/libs/sherpa-onnx.aar
           unzip -t app/libs/sherpa-onnx.aar >/dev/null
+      - name: Set up Python for voice-pack validation tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run offline voice-pack validator tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
       - name: Run recap pipeline JVM unit tests
