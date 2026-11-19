@@ -59,7 +59,7 @@ object LocalVideoVisualAnalyzer {
                 }
                 val timeMs = (index * intervalMs + intervalMs / 2L)
                     .coerceAtMost(durationMs - 1L)
-                onProgress("Offline ရုပ်ပုံနားလည်မှု — Frame ${index + 1}/$count ကို စိစစ်နေသည်...")
+                onProgress("Offline ရုပ်ပုံ Label စစ်ဆေးမှု — Frame ${index + 1}/$count ကို စိစစ်နေသည်...")
 
                 val frame = retriever.getFrameAtTime(
                     timeMs * 1_000L,
@@ -96,8 +96,8 @@ object LocalVideoVisualAnalyzer {
             }
 
             onProgress(
-                if (analyzed > 0) "Offline ရုပ်ပုံစိစစ်ပြီးပါပြီ — အထောက်အထားရသော Frame $analyzed ခု"
-                else "ရုပ်ပုံမှ ဖော်ထုတ်နိုင်သော အချက်အလက် မတွေ့ပါ။"
+                if (analyzed > 0) "Offline ရုပ်ပုံ Label စစ်ဆေးပြီးပါပြီ — အထောက်အထားရသော Frame $analyzed ခု"
+                else "ရုပ်ပုံမှ အသုံးပြုနိုင်သော Label မတွေ့ပါ။"
             )
             return evidence.toString().take(MAX_OUTPUT_CHARS)
         } finally {
