@@ -108,14 +108,19 @@ object MyanmarNeuralVoice {
         if (dir.usableSpace < 250L * 1024L * 1024L) {
             throw IllegalStateException("မြန်မာ Neural Voice အတွက် 250 MB နေရာလွတ် လိုအပ်ပါသည်။")
         }
-        download("$MODEL_ROOT/model.onnx", File(dir, "model.onnx.part"), "model.onnx", onProgress)
-        download("$MODEL_ROOT/tokens.txt", File(dir, "tokens.txt.part"), "tokens.txt", onProgress)
-        File(dir, "model.onnx.part").renameTo(model)
-        File(dir, "tokens.txt.part").renameTo(tokens)
-        if (!model.isFile || model.length() <= 1_000_000L || !tokens.isFile || tokens.length() <= 100L) {
+        val modelPart = File(dir, "model.onnx.part")
+        val tokensPart = File(dir, "tokens.txt.part")
+        try {
+            download("$MODEL_ROOT/model.onnx", modelPart, "model.onnx", onProgress)
+            download("$MODEL_ROOT/tokens.txt", tokensPart, "tokens.txt", onProgress)
+            installDownloadedFile(modelPart, model, 1_000_000L, "model.onnx")
+            installDownloadedFile(tokensPart, tokens, 100L, "tokens.txt")
+        } catch (e: Exception) {
+            modelPart.delete()
+            tokensPart.delete()
             model.delete()
             tokens.delete()
-            throw IllegalStateException("မြန်မာ Neural Voice Model ဖိုင် မပြည့်စုံပါ။")
+            throw e
         }
         return dir
     }
@@ -175,11 +180,32 @@ object MyanmarNeuralVoice {
                     result += current.toString()
                     current = StringBuilder()
                 }
-                sentence.chunked(maxChars).forEach { result += it }
+                result += splitAtMyanmarCharacterBoundaries(sentence, maxChars)
             }
         }
         if (current.isNotEmpty()) result += current.toString()
         return result
+    }
+
+    // String.chunked() can split a Burmese base character from its combining marks.
+    // BreakIterator keeps each chunk on a locale-aware character boundary.
+    private fun splitAtMyanmarCharacterBoundaries(text: String, maxChars: Int): List<String> =
+        MyanmarTextChunker.splitAtCharacterBoundaries(text, maxChars)
+
+    private fun installDownloadedFile(part: File, target: File, minimumBytes: Long, label: String) {
+        if (!part.isFile || part.length() <= minimumBytes) {
+            throw IllegalStateException("$label Download ဖိုင် မပြည့်စုံပါ။")
+        }
+        if (target.exists() && !target.delete()) {
+            throw IllegalStateException("အဟောင်း $label ဖိုင်ကို အစားထိုးမရပါ။")
+        }
+        if (!part.renameTo(target)) {
+            throw IllegalStateException("$label ဖိုင်ကို အပြီးသတ်တပ်ဆင်မရပါ။ Storage နေရာနှင့် permission ကို စစ်ပါ။")
+        }
+        if (!target.isFile || target.length() <= minimumBytes) {
+            target.delete()
+            throw IllegalStateException("$label ဖိုင် အတည်ပြုစစ်ဆေးမှု မအောင်မြင်ပါ။")
+        }
     }
 
     private fun writeIntLe(file: RandomAccessFile, value: Int) {

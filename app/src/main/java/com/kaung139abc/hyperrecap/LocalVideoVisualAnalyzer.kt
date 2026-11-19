@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
  * Labels are visual cues, not a claim of full visual plot comprehension.
  */
 object LocalVideoVisualAnalyzer {
-    private const val MAX_FRAMES = 24
+    private const val MAX_FRAMES = 32
     private const val MIN_CONFIDENCE = 0.38f
     private const val MAX_LABELS_PER_FRAME = 5
     private const val MAX_OUTPUT_CHARS = 8_000
@@ -47,7 +47,7 @@ object LocalVideoVisualAnalyzer {
             val count = when {
                 durationMs < 180_000L -> 6
                 durationMs <= 600_000L -> 10
-                durationMs <= 1_800_000L -> 16
+                durationMs <= 1_800_000L -> 20
                 else -> MAX_FRAMES
             }
             val intervalMs = (durationMs / count).coerceAtLeast(1L)
@@ -59,7 +59,7 @@ object LocalVideoVisualAnalyzer {
                 }
                 val timeMs = (index * intervalMs + intervalMs / 2L)
                     .coerceAtMost(durationMs - 1L)
-                onProgress("Offline ရုပ်ပုံနားလည်မှု — Frame ${index + 1}/$count ကို စိစစ်နေသည်...")
+                onProgress("Offline ရုပ်ပုံ Label စစ်ဆေးမှု — Frame ${index + 1}/$count ကို စိစစ်နေသည်...")
 
                 val frame = retriever.getFrameAtTime(
                     timeMs * 1_000L,
@@ -78,7 +78,7 @@ object LocalVideoVisualAnalyzer {
                             .filter { it.confidence >= MIN_CONFIDENCE }
                             .sortedByDescending { it.confidence }
                             .take(MAX_LABELS_PER_FRAME)
-                            .map { "${it.text} (${(it.confidence * 100).toInt()}%)" }
+                            .map { it.text }
                             .toList()
 
                         if (labels.isNotEmpty()) {
@@ -96,8 +96,8 @@ object LocalVideoVisualAnalyzer {
             }
 
             onProgress(
-                if (analyzed > 0) "Offline ရုပ်ပုံစိစစ်ပြီးပါပြီ — အထောက်အထားရသော Frame $analyzed ခု"
-                else "ရုပ်ပုံမှ ဖော်ထုတ်နိုင်သော အချက်အလက် မတွေ့ပါ။"
+                if (analyzed > 0) "Offline ရုပ်ပုံ Label စစ်ဆေးပြီးပါပြီ — အထောက်အထားရသော Frame $analyzed ခု"
+                else "ရုပ်ပုံမှ အသုံးပြုနိုင်သော Label မတွေ့ပါ။"
             )
             return evidence.toString().take(MAX_OUTPUT_CHARS)
         } finally {

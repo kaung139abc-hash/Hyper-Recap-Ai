@@ -73,6 +73,8 @@ class MainActivity : Activity() {
     private var pendingExtractedAudio: File? = null
     private var pendingDecodedWav: File? = null
     @Volatile private var transcriptionInProgress = false
+    @Volatile private var activeTranscriptionThread: Thread? = null
+    @Volatile private var activeRecapThread: Thread? = null
     private var pendingSubtitleDestination: Uri? = null
     private var pendingNarratedMp4Destination: Uri? = null
     private var pendingNarrationWav: File? = null
@@ -639,12 +641,12 @@ class MainActivity : Activity() {
         if (tts != null && ::voicePicker.isInitialized) {
             try {
                 val voices = tts?.voices ?: emptySet()
-                val excluded = listOf("thiha", "nilar", "သီဟ", "နီလာ")
+                // Do not blacklist voices by provider/name: Burmese voice packs vary by
+                // Android TTS engine and device. Expose every installed offline "my" voice.
+                val previousVoiceName = tts?.voice?.name
                 availableVoices = voices.filter { voice ->
-                    val identity = (voice.name + " " + voice.locale.displayName).lowercase(Locale.ROOT)
-                    voice.locale.language == "my" && !voice.isNetworkConnectionRequired && excluded.none { identity.contains(it) }
+                    voice.locale.language == "my" && !voice.isNetworkConnectionRequired
                 }.sortedWith(compareBy<Voice>(
-                    { if (it.isNetworkConnectionRequired) 1 else 0 },
                     { -it.quality }, { it.locale.displayName }, { it.name }
                 ))
                 val labels = availableVoices.map { voice ->
@@ -656,9 +658,12 @@ class MainActivity : Activity() {
                     if (labels.isEmpty()) listOf("အသုံးပြုနိုင်သော အသံမရှိပါ") else labels
                 )
                 if (labels.isNotEmpty()) {
-                    voicePicker.setSelection(0)
-                    tts?.voice = availableVoices[0]
-                    voiceInfo.text = "Offline မြန်မာအသံ ${labels.size} မျိုး ရရှိသည်။ Network voice များကို ဖယ်ထားသည်။"
+                    val selectedIndex = availableVoices.indexOfFirst { it.name == previousVoiceName }.let {
+                        if (it >= 0) it else 0
+                    }
+                    voicePicker.setSelection(selectedIndex)
+                    tts?.voice = availableVoices[selectedIndex]
+                    voiceInfo.text = "ဖုန်းတွင် ထည့်သွင်းထားသော Offline မြန်မာအသံ ${labels.size} မျိုး ရရှိသည်။ အသံအရေအတွက်သည် TTS Engine ပေါ်မူတည်သည်။"
                 } else {
                     voiceInfo.text = "TTS အသံမတွေ့ပါ။ Android Text-to-speech Settings မှ Voice data ထည့်ပါ။"
                 }
@@ -1072,6 +1077,16 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        activeTranscriptionThread?.interrupt()
+        activeTranscriptionThread = null
+        activeRecapThread?.interrupt()
+        activeRecapThread = null
+        // Release large temporary media files if the activity is closed before
+        // the user completes an export or document-picker operation.
+        pendingDecodedWav?.delete()
+        pendingDecodedWav = null
+        pendingExtractedAudio?.delete()
+        pendingExtractedAudio = null
         tts?.stop()
         tts?.shutdown()
         tts = null
@@ -1145,7 +1160,7 @@ class MainActivity : Activity() {
         recapOutput.text = "AI Recap ပြင်ဆင်နေပါသည်။ ခဏစောင့်ပါ..."
         // Keep the screen awake during first-time model download and long local inference.
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        Thread {
+        val worker = Thread {
             try {
                 val sourceCues = importedSrtCues
                 val highlights = if (sourceCues.isNotEmpty()) SrtTranscript.summarize(sourceCues, 12) else emptyList()
@@ -1158,7 +1173,7 @@ class MainActivity : Activity() {
 
                 // Do not label an extractive transcript selection as an AI story recap.
                 // A successful AUTO RECAP must come from the on-device generative model.
-                val recapVisualContext = latestVisualContext.trim().take(2_200)
+                val recapVisualContext = latestVisualContext.trim().take(4_000)
                 runOnUiThread {
                     status.text = if (recapVisualContext.isNotBlank()) {
                         "Offline Qwen AI — Transcript နှင့် ရုပ်ပုံအထောက်အထား ပေါင်းစပ်နေပါသည်..."
@@ -1199,15 +1214,20 @@ class MainActivity : Activity() {
                     requestAutoNarratedMp4Destination()
                 }
             } catch (e: Exception) {
+                if (e is InterruptedException || Thread.currentThread().isInterrupted) return@Thread
                 runOnUiThread {
                     status.text = "Recap မအောင်မြင်ပါ: ${e.localizedMessage ?: "Processing error"}"
                 }
             } finally {
+                if (activeRecapThread === Thread.currentThread()) activeRecapThread = null
                 runOnUiThread {
                     window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
             }
-        }.start()
+        }
+        activeRecapThread?.interrupt()
+        activeRecapThread = worker
+        worker.start()
     }
 
     private fun requestAutoNarratedMp4Destination() {
@@ -1927,7 +1947,7 @@ class MainActivity : Activity() {
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         status.text = "အဆင့် ၁/၃ — Video အသံကို ဖတ်နေပါသည်..."
         recapOutput.text = "AUTO RECAP စတင်ပါပြီ။\n\nအဆင့် ၁/၃ — Video Audio ကို PCM ပြောင်းနေပါသည်။\nပြီးဆုံးသည်အထိ App ကို မပိတ်ပါနှင့်။"
-        Thread {
+        val worker = Thread {
             val wav = File(cacheDir, "hyper_whisper_${System.currentTimeMillis()}.wav")
             var handedOffToRecap = false
             try {
@@ -1954,8 +1974,11 @@ class MainActivity : Activity() {
                 if (transcript.length < 80) {
                     throw IllegalStateException("အသံမှ စာသား ${transcript.length} လုံးသာ ရရှိသည်။ Recap အတွက် အနည်းဆုံး ၈၀ လုံးခန့် လိုအပ်သည်။")
                 }
-                // Analyze representative video frames locally before story synthesis.
-                // This adds visual evidence without uploading private movie frames.
+                // Visual labels are optional supporting evidence, not a prerequisite
+                // for a valid transcript-based recap. ML Kit may return no labels for
+                // animation, dark scenes, subtitles, or unusual shots.
+                // Do not discard a usable transcript when this lightweight classifier
+                // cannot label frames on the 4 GB target device.
                 val visualEvidence = try {
                     LocalVideoVisualAnalyzer.analyze(this, sourceUri) { message ->
                         runOnUiThread {
@@ -1963,18 +1986,20 @@ class MainActivity : Activity() {
                             recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\n\n$message"
                         }
                     }
-                } catch (visualError: Exception) {
-                    throw IllegalStateException(
-                        "Offline ရုပ်ပုံစိစစ်မှု မအောင်မြင်ပါ။ ရုပ်ပုံအထောက်အထားမပါဘဲ Multimodal Recap အောင်မြင်သည်ဟု မပြပါ။ အကြောင်းရင်း: ${visualError.localizedMessage ?: visualError.javaClass.simpleName}",
-                        visualError
-                    )
-                }
-                if (visualEvidence.isBlank()) {
-                    throw IllegalStateException(
-                        "Video Frame များမှ အသုံးပြုနိုင်သော ရုပ်ပုံအထောက်အထား မရရှိပါ။ ရုပ်ပုံနားလည်မှု မအောင်မြင်သေးသောကြောင့် Recap ကို မဆက်လုပ်ပါ။"
-                    )
+                } catch (cancelled: InterruptedException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    runOnUiThread {
+                        status.text = "ရုပ်ပုံအထောက်အထား မရရှိပါ။ Transcript အခြေခံ Offline Recap ကို ဆက်လုပ်နေပါသည်။"
+                    }
+                    ""
                 }
                 latestVisualContext = visualEvidence
+                if (visualEvidence.isBlank()) {
+                    runOnUiThread {
+                        status.text = "ရုပ်ပုံမှ label မရရှိပါ။ အသံမှရသော Transcript ကိုသာ အသုံးပြု၍ Recap ဆက်လုပ်နေပါသည်။"
+                    }
+                }
                 handedOffToRecap = true
                 runOnUiThread {
                     importedSrtCues = cues
@@ -1986,6 +2011,7 @@ class MainActivity : Activity() {
                     generateRecap()
                 }
             } catch (e: Exception) {
+                if (e is InterruptedException || Thread.currentThread().isInterrupted) return@Thread
                 val message = e.localizedMessage ?: e.javaClass.simpleName
                 runOnUiThread {
                     val friendly = "AUTO RECAP မအောင်မြင်ပါ။\n\nအကြောင်းရင်း: $message"
@@ -2001,13 +2027,17 @@ class MainActivity : Activity() {
             } finally {
                 wav.delete()
                 transcriptionInProgress = false
+                if (activeTranscriptionThread === Thread.currentThread()) activeTranscriptionThread = null
                 if (!handedOffToRecap) {
                     runOnUiThread {
                         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
                 }
             }
-        }.start()
+        }.also { thread ->
+            activeTranscriptionThread = thread
+            thread.start()
+        }
     }
 
     /**
@@ -2133,8 +2163,22 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated API retained for compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+        if (resultCode != RESULT_OK || data?.data == null) {
+            // A cancelled document picker must not strand a multi-hundred-MB
+            // temporary WAV/M4A in the app cache on storage-constrained phones.
+            when (requestCode) {
+                REQUEST_SAVE_DECODED_WAV -> {
+                    pendingDecodedWav?.delete()
+                    pendingDecodedWav = null
+                }
+                REQUEST_SAVE_EXTRACTED_AUDIO -> {
+                    pendingExtractedAudio?.delete()
+                    pendingExtractedAudio = null
+                }
+            }
+            return
+        }
+        val uri = data.data!!
         if (requestCode == REQUEST_SAVE_AUDIO) {
             synthesizeRecapAudio(uri)
             return

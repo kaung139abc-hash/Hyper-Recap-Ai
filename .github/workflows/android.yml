@@ -3,6 +3,8 @@ name: Android APK
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
@@ -41,6 +43,12 @@ jobs:
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar \
             -o app/libs/sherpa-onnx.aar
           unzip -t app/libs/sherpa-onnx.aar >/dev/null
+      - name: Set up Python for voice-pack validation tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run offline voice-pack validator tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
       - name: Run recap pipeline JVM unit tests
@@ -78,7 +86,7 @@ jobs:
           name: Hyper-Recap-AI-signed-release
           path: app/build/outputs/apk/release/app-release.apk
       - name: Publish latest installable APK
-        if: success() && github.ref == 'refs/heads/main'
+        if: success() && github.ref == 'refs/heads/main' && (env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' || env.ANDROID_KEY_ALIAS == '' || env.ANDROID_KEY_PASSWORD == '')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest

@@ -96,7 +96,7 @@ object OfflineStoryAi {
             }
             onProgress("Offline Story AI — ဇာတ်လမ်းအစ၊ အလယ်၊ အဆုံးကို ပေါင်းစပ်ရေးသားနေသည်...")
             configureGeneration(520)
-            val visualEvidence = visualContext.trim().take(2_200)
+            val visualEvidence = visualContext.trim().take(4_000)
             val visualSection = if (visualEvidence.isNotBlank()) {
                 "\n\nTIMESTAMPED VISUAL FRAME EVIDENCE (on-device labels):\n" +
                     visualEvidence +

@@ -81,6 +81,9 @@ object AudioDecoder {
             val info = MediaCodec.BufferInfo()
 
             while (!outputDone) {
+                if (Thread.currentThread().isInterrupted) {
+                    throw InterruptedException("Audio Decode ကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
+                }
                 if (!inputDone) {
                     val inputIndex = decoder.dequeueInputBuffer(10_000)
                     if (inputIndex >= 0) {
@@ -191,7 +194,7 @@ object AudioDecoder {
      * This avoids retaining stereo WAVs for long movies; peak memory stays bounded
      * to one decoder output buffer plus one mono output buffer.
      */
-    private fun downmixToMonoPcm16(interleaved: ByteArray, channels: Int): ByteArray {
+    internal fun downmixToMonoPcm16(interleaved: ByteArray, channels: Int): ByteArray {
         if (channels !in 1..8) throw IllegalStateException("Audio channel အရေအတွက် မမှန်ပါ။")
         val frameBytes = channels * 2
         if (interleaved.size % frameBytes != 0) {
@@ -216,7 +219,7 @@ object AudioDecoder {
         return mono
     }
 
-    private fun convertToPcm16(bytes: ByteArray, encoding: Int): ByteArray {
+    internal fun convertToPcm16(bytes: ByteArray, encoding: Int): ByteArray {
         // MediaCodec output buffers must contain complete samples. Never silently
         // truncate a partial sample: doing so can shift every following channel.
         val bytesPerSample = when (encoding) {
@@ -246,7 +249,7 @@ object AudioDecoder {
                 4 -> {
                     val value = input.getFloat()
                     val finite = if (value.isFinite()) value.coerceIn(-1f, 1f) else 0f
-                    (finite * 32767f).toInt().toShort()
+                    if (finite <= -1f) Short.MIN_VALUE else (finite * 32767f).toInt().toShort()
                 }
                 21 -> {
                     var value = (input.get().toInt() and 0xff) or
