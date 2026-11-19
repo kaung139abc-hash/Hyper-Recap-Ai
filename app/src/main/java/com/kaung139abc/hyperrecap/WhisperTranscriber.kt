@@ -167,7 +167,7 @@ object WhisperTranscriber {
             connection.connect()
             val response = connection.responseCode
             if (response !in 200..299) {
-                if (response == HttpURLConnection.HTTP_REQUESTED_RANGE_NOT_SATISFIABLE) {
+                if (response == 416) {
                     archive.delete()
                 }
                 throw IllegalStateException("Whisper Model Download မအောင်မြင်ပါ (HTTP $response)။ ထပ်မံကြိုးစားပါ။")
