@@ -89,3 +89,65 @@ class SubtitleDraftTest {
         assertEquals("", SubtitleDraft.fromNarration("   "))
     }
 }
+
+
+class AudioPcmConversionTest {
+    @Test
+    fun downmixesStereoToMonoWithoutChangingAverageLevel() {
+        val stereo = byteArrayOf(
+            0xE8.toByte(), 0x03, 0x18, 0xFC.toByte(), // 1000, -1000 -> 0
+            0xFF.toByte(), 0x7F, 0xFF.toByte(), 0x7F // 32767, 32767 -> 32767
+        )
+
+        val mono = AudioDecoder.downmixToMonoPcm16(stereo, channels = 2)
+
+        assertEquals(4, mono.size)
+        assertEquals(0, sampleAt(mono, 0))
+        assertEquals(Short.MAX_VALUE.toInt(), sampleAt(mono, 1))
+    }
+
+    @Test
+    fun convertsUnsignedEightBitPcmToSignedSixteenBit() {
+        val converted = AudioDecoder.convertToPcm16(
+            byteArrayOf(0, 128.toByte(), 255.toByte()),
+            encoding = 3
+        )
+
+        assertEquals(6, converted.size)
+        assertEquals(Short.MIN_VALUE.toInt(), sampleAt(converted, 0))
+        assertEquals(0, sampleAt(converted, 1))
+        assertEquals(Short.MAX_VALUE.toInt() - 255, sampleAt(converted, 2))
+    }
+
+    @Test
+    fun convertsFloatPcmAndClampsOutOfRangeValues() {
+        val input = java.nio.ByteBuffer.allocate(12)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            .putFloat(-1.5f)
+            .putFloat(0.5f)
+            .putFloat(Float.NaN)
+            .array()
+
+        val converted = AudioDecoder.convertToPcm16(input, encoding = 4)
+
+        assertEquals(Short.MIN_VALUE.toInt(), sampleAt(converted, 0))
+        assertEquals(16_383, sampleAt(converted, 1))
+        assertEquals(0, sampleAt(converted, 2))
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun rejectsIncompleteStereoFramesInsteadOfSilentlyDroppingBytes() {
+        AudioDecoder.downmixToMonoPcm16(byteArrayOf(1, 2, 3), channels = 2)
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun rejectsUnsupportedPcmEncoding() {
+        AudioDecoder.convertToPcm16(byteArrayOf(1, 2), encoding = 99)
+    }
+
+    private fun sampleAt(bytes: ByteArray, index: Int): Int {
+        val offset = index * 2
+        return ((bytes[offset].toInt() and 0xff) or
+            (bytes[offset + 1].toInt() shl 8)).toShort().toInt()
+    }
+}
