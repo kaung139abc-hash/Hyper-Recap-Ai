@@ -189,26 +189,8 @@ object MyanmarNeuralVoice {
 
     // String.chunked() can split a Burmese base character from its combining marks.
     // BreakIterator keeps each chunk on a locale-aware character boundary.
-    private fun splitAtMyanmarCharacterBoundaries(text: String, maxChars: Int): List<String> {
-        val iterator = java.text.BreakIterator.getCharacterInstance(java.util.Locale("my"))
-        iterator.setText(text)
-        val chunks = mutableListOf<String>()
-        var chunk = StringBuilder()
-        var start = iterator.first()
-        var end = iterator.next()
-        while (end != java.text.BreakIterator.DONE) {
-            val cluster = text.substring(start, end)
-            if (chunk.length + cluster.length > maxChars && chunk.isNotEmpty()) {
-                chunks += chunk.toString()
-                chunk = StringBuilder()
-            }
-            chunk.append(cluster)
-            start = end
-            end = iterator.next()
-        }
-        if (chunk.isNotEmpty()) chunks += chunk.toString()
-        return chunks
-    }
+    private fun splitAtMyanmarCharacterBoundaries(text: String, maxChars: Int): List<String> =
+        MyanmarTextChunker.splitAtCharacterBoundaries(text, maxChars)
 
     private fun installDownloadedFile(part: File, target: File, minimumBytes: Long, label: String) {
         if (!part.isFile || part.length() <= minimumBytes) {
