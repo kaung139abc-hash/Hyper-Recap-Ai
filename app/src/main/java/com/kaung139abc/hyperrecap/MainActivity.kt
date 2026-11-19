@@ -1161,7 +1161,7 @@ class MainActivity : Activity() {
 
                 // Do not label an extractive transcript selection as an AI story recap.
                 // A successful AUTO RECAP must come from the on-device generative model.
-                val recapVisualContext = latestVisualContext.trim().take(2_200)
+                val recapVisualContext = latestVisualContext.trim().take(4_000)
                 runOnUiThread {
                     status.text = if (recapVisualContext.isNotBlank()) {
                         "Offline Qwen AI — Transcript နှင့် ရုပ်ပုံအထောက်အထား ပေါင်းစပ်နေပါသည်..."
