@@ -191,7 +191,7 @@ object AudioDecoder {
      * This avoids retaining stereo WAVs for long movies; peak memory stays bounded
      * to one decoder output buffer plus one mono output buffer.
      */
-    private fun downmixToMonoPcm16(interleaved: ByteArray, channels: Int): ByteArray {
+    internal fun downmixToMonoPcm16(interleaved: ByteArray, channels: Int): ByteArray {
         if (channels !in 1..8) throw IllegalStateException("Audio channel အရေအတွက် မမှန်ပါ။")
         val frameBytes = channels * 2
         if (interleaved.size % frameBytes != 0) {
@@ -216,7 +216,7 @@ object AudioDecoder {
         return mono
     }
 
-    private fun convertToPcm16(bytes: ByteArray, encoding: Int): ByteArray {
+    internal fun convertToPcm16(bytes: ByteArray, encoding: Int): ByteArray {
         // MediaCodec output buffers must contain complete samples. Never silently
         // truncate a partial sample: doing so can shift every following channel.
         val bytesPerSample = when (encoding) {
