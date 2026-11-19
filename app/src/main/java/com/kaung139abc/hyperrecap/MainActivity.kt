@@ -1954,27 +1954,32 @@ class MainActivity : Activity() {
                 if (transcript.length < 80) {
                     throw IllegalStateException("အသံမှ စာသား ${transcript.length} လုံးသာ ရရှိသည်။ Recap အတွက် အနည်းဆုံး ၈၀ လုံးခန့် လိုအပ်သည်။")
                 }
-                // Analyze representative video frames locally before story synthesis.
-                // This adds visual evidence without uploading private movie frames.
+                // Visual labels are optional supporting evidence, not a prerequisite
+                // for a valid transcript-based recap. ML Kit may return no labels for
+                // animation, dark scenes, subtitles, or unusual shots.
+                // Do not discard a usable transcript when this lightweight classifier
+                // cannot label frames on the 4 GB target device.
                 val visualEvidence = try {
                     LocalVideoVisualAnalyzer.analyze(this, sourceUri) { message ->
                         runOnUiThread {
                             status.text = message
-                            recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\n\n$message"
+                            recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\\n\\n$message"
                         }
                     }
-                } catch (visualError: Exception) {
-                    throw IllegalStateException(
-                        "Offline ရုပ်ပုံစိစစ်မှု မအောင်မြင်ပါ။ ရုပ်ပုံအထောက်အထားမပါဘဲ Multimodal Recap အောင်မြင်သည်ဟု မပြပါ။ အကြောင်းရင်း: ${visualError.localizedMessage ?: visualError.javaClass.simpleName}",
-                        visualError
-                    )
-                }
-                if (visualEvidence.isBlank()) {
-                    throw IllegalStateException(
-                        "Video Frame များမှ အသုံးပြုနိုင်သော ရုပ်ပုံအထောက်အထား မရရှိပါ။ ရုပ်ပုံနားလည်မှု မအောင်မြင်သေးသောကြောင့် Recap ကို မဆက်လုပ်ပါ။"
-                    )
+                } catch (cancelled: InterruptedException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    runOnUiThread {
+                        status.text = "ရုပ်ပုံအထောက်အထား မရရှိပါ။ Transcript အခြေခံ Offline Recap ကို ဆက်လုပ်နေပါသည်။"
+                    }
+                    ""
                 }
                 latestVisualContext = visualEvidence
+                if (visualEvidence.isBlank()) {
+                    runOnUiThread {
+                        status.text = "ရုပ်ပုံမှ label မရရှိပါ။ အသံမှရသော Transcript ကိုသာ အသုံးပြု၍ Recap ဆက်လုပ်နေပါသည်။"
+                    }
+                }
                 handedOffToRecap = true
                 runOnUiThread {
                     importedSrtCues = cues
