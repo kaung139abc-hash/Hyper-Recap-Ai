@@ -73,6 +73,7 @@ class MainActivity : Activity() {
     private var pendingExtractedAudio: File? = null
     private var pendingDecodedWav: File? = null
     @Volatile private var transcriptionInProgress = false
+    @Volatile private var activeTranscriptionThread: Thread? = null
     private var pendingSubtitleDestination: Uri? = null
     private var pendingNarratedMp4Destination: Uri? = null
     private var pendingNarrationWav: File? = null
@@ -1075,6 +1076,8 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        activeTranscriptionThread?.interrupt()
+        activeTranscriptionThread = null
         // Release large temporary media files if the activity is closed before
         // the user completes an export or document-picker operation.
         pendingDecodedWav?.delete()
@@ -1936,7 +1939,7 @@ class MainActivity : Activity() {
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         status.text = "အဆင့် ၁/၃ — Video အသံကို ဖတ်နေပါသည်..."
         recapOutput.text = "AUTO RECAP စတင်ပါပြီ။\n\nအဆင့် ၁/၃ — Video Audio ကို PCM ပြောင်းနေပါသည်။\nပြီးဆုံးသည်အထိ App ကို မပိတ်ပါနှင့်။"
-        Thread {
+        val worker = Thread {
             val wav = File(cacheDir, "hyper_whisper_${System.currentTimeMillis()}.wav")
             var handedOffToRecap = false
             try {
@@ -2000,6 +2003,7 @@ class MainActivity : Activity() {
                     generateRecap()
                 }
             } catch (e: Exception) {
+                if (e is InterruptedException || Thread.currentThread().isInterrupted) return@Thread
                 val message = e.localizedMessage ?: e.javaClass.simpleName
                 runOnUiThread {
                     val friendly = "AUTO RECAP မအောင်မြင်ပါ။\n\nအကြောင်းရင်း: $message"
@@ -2021,7 +2025,10 @@ class MainActivity : Activity() {
                     }
                 }
             }
-        }.start()
+        }.also { thread ->
+            activeTranscriptionThread = thread
+            thread.start()
+        }
     }
 
     /**
