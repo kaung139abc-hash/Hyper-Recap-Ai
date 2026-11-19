@@ -78,42 +78,7 @@ object WhisperTranscriber {
             throw IllegalStateException("Whisper Model အတွက် အနည်းဆုံး 650 MB နေရာလွတ် လိုအပ်ပါသည်။")
         }
         val archive = File(root, "whisper-base.tar.bz2.part")
-        val connection = (URL(MODEL_ARCHIVE).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 30_000
-            readTimeout = 60_000
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Hyper-Recap-AI-Android")
-        }
-        try {
-            connection.connect()
-            val total = connection.contentLengthLong
-            if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("Whisper Model Download မအောင်မြင်ပါ (HTTP ${connection.responseCode})")
-            }
-            connection.inputStream.use { input ->
-                FileOutputStream(archive).use { output ->
-                    val buffer = ByteArray(256 * 1024)
-                    var received = 0L
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        received += count
-                        if (received > MAX_ARCHIVE_BYTES) {
-                            throw IllegalStateException("Whisper Model archive သည် သတ်မှတ်ထားသော အရွယ်အစားထက် ကြီးနေပါသည်။")
-                        }
-                        output.write(buffer, 0, count)
-                        if (total > 0) onProgress("Whisper Model Download — ${(received * 100 / total).coerceIn(0, 100)}%")
-                        else onProgress("Whisper Model Download — ${received / (1024 * 1024)} MB")
-                    }
-                    output.fd.sync()
-                    if (total > 0L && received != total) {
-                        throw IllegalStateException("Whisper Model Download မပြည့်စုံပါ။ (${received}/$total bytes)")
-                    }
-                }
-            }
-        } finally {
-            connection.disconnect()
-        }
+        downloadModelArchive(archive, onProgress)
         if (!archive.isFile || archive.length() < 50L * 1024L * 1024L) {
             archive.delete()
             throw IllegalStateException("Whisper Model ဖိုင် မပြည့်စုံပါ။ Internet ပြန်စစ်ပြီး ထပ်လုပ်ပါ။")
@@ -176,6 +141,103 @@ object WhisperTranscriber {
         } finally {
             archive.delete()
             staging.deleteRecursively()
+        }
+    }
+
+    /**
+     * Keep an interrupted archive and resume it with HTTP Range on the next attempt.
+     * Some release hosts ignore Range and return 200; in that case restart safely
+     * instead of appending a second copy of the archive.
+     */
+    private fun downloadModelArchive(archive: File, onProgress: (String) -> Unit) {
+        var existingBytes = archive.takeIf { it.isFile }?.length() ?: 0L
+        if (existingBytes < 0L || existingBytes >= MAX_ARCHIVE_BYTES) {
+            archive.delete()
+            existingBytes = 0L
+        }
+
+        val connection = (URL(MODEL_ARCHIVE).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 30_000
+            readTimeout = 60_000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "Hyper-Recap-AI-Android")
+            if (existingBytes > 0L) setRequestProperty("Range", "bytes=$existingBytes-")
+        }
+        try {
+            connection.connect()
+            val response = connection.responseCode
+            if (response !in 200..299) {
+                if (response == HttpURLConnection.HTTP_REQUESTED_RANGE_NOT_SATISFIABLE) {
+                    archive.delete()
+                }
+                throw IllegalStateException("Whisper Model Download မအောင်မြင်ပါ (HTTP $response)။ ထပ်မံကြိုးစားပါ။")
+            }
+
+            val append = existingBytes > 0L && response == HttpURLConnection.HTTP_PARTIAL
+            if (append) {
+                val range = connection.getHeaderField("Content-Range")
+                val match = Regex("bytes\\s+(\\d+)-(\\d+)/(\\d+|\\*)", RegexOption.IGNORE_CASE)
+                    .matchEntire(range?.trim().orEmpty())
+                val rangeStart = match?.groupValues?.get(1)?.toLongOrNull()
+                val rangeEnd = match?.groupValues?.get(2)?.toLongOrNull()
+                val rangeTotal = match?.groupValues?.get(3)?.takeUnless { it == "*" }?.toLongOrNull()
+                if (rangeStart != existingBytes || rangeEnd == null || rangeEnd < rangeStart ||
+                    (rangeTotal != null && (rangeTotal <= rangeEnd || rangeTotal > MAX_ARCHIVE_BYTES))) {
+                    archive.delete()
+                    throw IllegalStateException("Whisper Model server ၏ Range response မမှန်ပါ။ ထပ်မံ Download လုပ်ပါ။")
+                }
+            } else if (response == HttpURLConnection.HTTP_OK) {
+                // Server ignored Range (or this is a fresh download): never append.
+                existingBytes = 0L
+            } else if (response != HttpURLConnection.HTTP_PARTIAL) {
+                throw IllegalStateException("Whisper Model server response မမှန်ပါ (HTTP $response)။")
+            }
+
+            val contentLength = connection.contentLengthLong
+            val expectedTotal = if (append) {
+                connection.getHeaderField("Content-Range")
+                    ?.substringAfterLast('/')?.takeUnless { it == "*" }?.toLongOrNull()
+            } else contentLength.takeIf { it >= 0L }
+            if (expectedTotal != null && expectedTotal > MAX_ARCHIVE_BYTES) {
+                archive.delete()
+                throw IllegalStateException("Whisper Model archive သည် သတ်မှတ်ထားသော အရွယ်အစားထက် ကြီးနေပါသည်။")
+            }
+
+            connection.inputStream.use { input ->
+                FileOutputStream(archive, append).use { output ->
+                    val buffer = ByteArray(256 * 1024)
+                    var downloadedThisAttempt = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        downloadedThisAttempt += count
+                        val currentTotal = existingBytes + downloadedThisAttempt
+                        if (currentTotal > MAX_ARCHIVE_BYTES ||
+                            (expectedTotal != null && currentTotal > expectedTotal)) {
+                            archive.delete()
+                            throw IllegalStateException("Whisper Model archive အရွယ်အစား မမှန်ပါ။")
+                        }
+                        output.write(buffer, 0, count)
+                        if (expectedTotal != null && expectedTotal > 0L) {
+                            onProgress("Whisper Model Download — ${(currentTotal * 100 / expectedTotal).coerceIn(0, 100)}%")
+                        } else {
+                            onProgress("Whisper Model Download — ${currentTotal / (1024 * 1024)} MB")
+                        }
+                    }
+                    output.fd.sync()
+                    val finalLength = existingBytes + downloadedThisAttempt
+                    if ((contentLength >= 0L && downloadedThisAttempt != contentLength) ||
+                        (expectedTotal != null && finalLength != expectedTotal)) {
+                        throw IllegalStateException("Whisper Model Download မပြည့်စုံပါ။ (${finalLength}/${expectedTotal ?: "?"} bytes) — ထပ်မံကြိုးစားပါ။")
+                    }
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
+        if (!archive.isFile || archive.length() < 50L * 1024L * 1024L) {
+            archive.delete()
+            throw IllegalStateException("Whisper Model ဖိုင် မပြည့်စုံပါ။ Internet ပြန်စစ်ပြီး ထပ်လုပ်ပါ။")
         }
     }
 
