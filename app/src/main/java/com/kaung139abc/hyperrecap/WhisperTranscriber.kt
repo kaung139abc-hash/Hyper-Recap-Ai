@@ -384,30 +384,10 @@ object WhisperTranscriber {
         val sentences = text.split(Regex("(?<=[။.!?])\\s+"))
             .map { it.trim() }
             .filter { it.isNotBlank() }
-        val result = mutableListOf<String>()
-        for (sentence in sentences) {
-            if (sentence.length <= maxChars) {
-                result += sentence
-                continue
-            }
-            val iterator = java.text.BreakIterator.getCharacterInstance(Locale("my"))
-            iterator.setText(sentence)
-            var part = StringBuilder()
-            var start = iterator.first()
-            var end = iterator.next()
-            while (end != java.text.BreakIterator.DONE) {
-                val cluster = sentence.substring(start, end)
-                if (part.length + cluster.length > maxChars && part.isNotEmpty()) {
-                    result += part.toString().trim()
-                    part = StringBuilder()
-                }
-                part.append(cluster)
-                start = end
-                end = iterator.next()
-            }
-            if (part.isNotEmpty()) result += part.toString().trim()
+        return sentences.flatMap { sentence ->
+            if (sentence.length <= maxChars) listOf(sentence)
+            else MyanmarTextChunker.splitAtCharacterBoundaries(sentence, maxChars)
         }
-        return result.filter { it.isNotBlank() }
     }
 
     private fun resample(input: FloatArray, sourceRate: Int, targetRate: Int): FloatArray {
