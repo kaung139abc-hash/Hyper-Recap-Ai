@@ -13,11 +13,11 @@ This document is an implementation plan, not a claim that trained voice weights 
 
 ## Dataset candidate under review
 
-The Open-Burmese-Speech repository describes the Burmese Daily Dialogue Corpus (BDDC) as approximately 22.38 hours, 24,560 WAV files, and 13 synthetic speakers, and its repository README declares CC BY 4.0:
+The Open-Burmese-Speech repository describes the Burmese Daily Dialogue Corpus (BDDC) as approximately 22.38 hours, 24,560 WAV files, and 13 synthetic speakers. Its repository README states CC BY 4.0, but the project's existing licensing audit correctly notes that this is not sufficient evidence that the exact Hugging Face dataset revision, every audio file, transcript, and synthetic speaker identity can be redistributed or used to train a commercial model:
 https://github.com/thantzinphyo-gg/Open-Burmese-Speech
 https://huggingface.co/datasets/thantzinphyo/Burmese-Daily-Dialogue-Corpus
 
-This is a promising starting point for several synthetic voices, but it is NOT approved for shipping yet. Before training or redistribution, verify the Hugging Face dataset card, the actual audio/transcript fields, the provenance and terms of the synthetic voices, and that CC BY 4.0 applies to every audio file and speaker identity. Keep attribution with the resulting model. If any of those checks fail, do not use that corpus.
+BDDC is therefore a research candidate only, NOT an approved training or shipping source. Before use, inspect the exact dataset card and files, verify the license applies to all records and voice identities, check source/provenance and any third-party restrictions, and retain required attribution. If those checks cannot be established, do not use the corpus for the commercial app. The validator added in this repository checks audio/manifest hygiene only; it cannot establish legal rights.
 
 ## Training pipeline
 
