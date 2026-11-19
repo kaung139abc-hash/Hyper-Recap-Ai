@@ -78,7 +78,7 @@ object LocalVideoVisualAnalyzer {
                             .filter { it.confidence >= MIN_CONFIDENCE }
                             .sortedByDescending { it.confidence }
                             .take(MAX_LABELS_PER_FRAME)
-                            .map { "${it.text} (${(it.confidence * 100).toInt()}%)" }
+                            .map { it.text }
                             .toList()
 
                         if (labels.isNotEmpty()) {
