@@ -173,6 +173,10 @@ object WhisperTranscriber {
                 throw IllegalStateException("Whisper Model Download မအောင်မြင်ပါ (HTTP $response)။ ထပ်မံကြိုးစားပါ။")
             }
 
+            if (existingBytes == 0L && response == HttpURLConnection.HTTP_PARTIAL) {
+                archive.delete()
+                throw IllegalStateException("Whisper Model server ၏ မမျှော်လင့်ထားသော partial response ဖြစ်နေပါသည်။ ထပ်မံကြိုးစားပါ။")
+            }
             val append = existingBytes > 0L && response == HttpURLConnection.HTTP_PARTIAL
             if (append) {
                 val range = connection.getHeaderField("Content-Range")
