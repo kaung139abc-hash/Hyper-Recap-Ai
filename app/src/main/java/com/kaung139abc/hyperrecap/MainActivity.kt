@@ -1972,7 +1972,7 @@ class MainActivity : Activity() {
                     LocalVideoVisualAnalyzer.analyze(this, sourceUri) { message ->
                         runOnUiThread {
                             status.text = message
-                            recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\\n\\n$message"
+                            recapOutput.text = "AUTO RECAP လုပ်ဆောင်နေပါသည်။\n\n$message"
                         }
                     }
                 } catch (cancelled: InterruptedException) {
