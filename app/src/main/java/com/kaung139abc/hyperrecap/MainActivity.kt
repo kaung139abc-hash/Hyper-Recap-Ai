@@ -2019,6 +2019,7 @@ class MainActivity : Activity() {
             } finally {
                 wav.delete()
                 transcriptionInProgress = false
+                if (activeTranscriptionThread === Thread.currentThread()) activeTranscriptionThread = null
                 if (!handedOffToRecap) {
                     runOnUiThread {
                         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
