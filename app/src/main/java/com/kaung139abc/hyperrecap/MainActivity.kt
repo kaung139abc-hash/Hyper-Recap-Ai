@@ -1075,6 +1075,12 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        // Release large temporary media files if the activity is closed before
+        // the user completes an export or document-picker operation.
+        pendingDecodedWav?.delete()
+        pendingDecodedWav = null
+        pendingExtractedAudio?.delete()
+        pendingExtractedAudio = null
         tts?.stop()
         tts?.shutdown()
         tts = null
@@ -2141,8 +2147,22 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated API retained for compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+        if (resultCode != RESULT_OK || data?.data == null) {
+            // A cancelled document picker must not strand a multi-hundred-MB
+            // temporary WAV/M4A in the app cache on storage-constrained phones.
+            when (requestCode) {
+                REQUEST_SAVE_DECODED_WAV -> {
+                    pendingDecodedWav?.delete()
+                    pendingDecodedWav = null
+                }
+                REQUEST_SAVE_EXTRACTED_AUDIO -> {
+                    pendingExtractedAudio?.delete()
+                    pendingExtractedAudio = null
+                }
+            }
+            return
+        }
+        val uri = data.data!!
         if (requestCode == REQUEST_SAVE_AUDIO) {
             synthesizeRecapAudio(uri)
             return
