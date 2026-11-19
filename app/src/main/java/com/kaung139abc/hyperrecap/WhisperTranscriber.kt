@@ -270,6 +270,9 @@ object WhisperTranscriber {
         var index = 0
         RandomAccessFile(wav, "r").use { file ->
             while (startMs < durationMs) {
+                if (Thread.currentThread().isInterrupted) {
+                    throw InterruptedException("Whisper Transcription ကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
+                }
                 val endMs = (startMs + windowMs).coerceAtMost(durationMs)
                 val firstFrame = startMs * info.sampleRate / 1000L
                 val lastFrame = endMs * info.sampleRate / 1000L
